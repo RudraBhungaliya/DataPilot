@@ -1,0 +1,24 @@
+{
+  "name": "datapilot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DataPilot - AI-Powered Data Intelligence Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@datapilot/web",
+    "build:web": "npm run build --workspace=@datapilot/web",
+    "lint": "npm run lint --workspace=@datapilot/web",
+    "server:install": "pip install -r apps/server/requirements.txt",
+    "server:dev": "python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir apps/server",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
