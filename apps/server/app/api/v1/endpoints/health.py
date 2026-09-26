@@ -3,7 +3,7 @@ from app.core.config import settings
 from app.schemas.health import HealthResponse, ServiceStatus
 from app.db.session import check_database_connection
 from app.services.redis import RedisService
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ async def health_check() -> HealthResponse:
         status=overall_status,
         version=settings.VERSION,
         environment=settings.ENVIRONMENT,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         services=ServiceStatus(
             database=db_status,
             redis=redis_status,

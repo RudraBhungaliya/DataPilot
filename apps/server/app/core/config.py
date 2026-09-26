@@ -64,12 +64,16 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_URL: Union[str, None] = None
 
+    # AI / LLM Configuration
+    AI_PROVIDER: str = "gemini"
+    AI_MODEL: str = "gemini-2.5-flash"
+    AI_API_KEY: Union[str, None] = None
+    GEMINI_API_KEY: Union[str, None] = None
+    AI_TIMEOUT_SECONDS: int = 30
+
     @property
-    def redis_connection_url(self) -> str:
-        if self.REDIS_URL:
-            return self.REDIS_URL
-        auth_part = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
-        return f"redis://{auth_part}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+    def effective_ai_api_key(self) -> Union[str, None]:
+        return self.AI_API_KEY or self.GEMINI_API_KEY or os.getenv("AI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 
 settings = Settings()

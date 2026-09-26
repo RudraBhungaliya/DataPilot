@@ -21,12 +21,12 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { fetchHealth, fetchApiRoot, HealthData, ApiRootData } from "@/lib/api";
+import { RequirementUnderstanding } from "@/components/workflow/RequirementUnderstanding";
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [apiInfo, setApiInfo] = useState<ApiRootData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [promptText, setPromptText] = useState("");
 
   const refreshSystemData = async () => {
     setLoading(true);
@@ -46,10 +46,10 @@ export default function DashboardPage() {
   const sampleTasks = [
     {
       id: "TSK-1092",
-      prompt: "Extract AI engineer job postings in SF with salary ranges > $180k",
+      prompt: "Extract AI engineer job postings in India with salary ranges > 25 LPA",
       source: "LinkedIn, Indeed",
       records: "1,420 items",
-      status: "running" as const,
+      status: "completed" as const,
       timestamp: "2 mins ago",
     },
     {
@@ -77,10 +77,10 @@ export default function DashboardPage() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 space-y-4 max-w-3xl">
+        <div className="relative z-10 space-y-3 max-w-3xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Phase 1 Architecture Foundation</span>
+            <span>Phase 2: AI Requirement Understanding Active</span>
           </div>
 
           <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
@@ -88,36 +88,13 @@ export default function DashboardPage() {
           </h1>
 
           <p className="text-sm md:text-base text-slate-400 leading-relaxed">
-            Turn natural language business requirements into clean, structured, source-backed datasets with autonomous collection workflows, validation, and deduplication.
+            Turn natural language business requirements into validated, structured workflow specifications ready for autonomous collection and data pipelines.
           </p>
-
-          {/* Prompt Box Preview */}
-          <div className="pt-2">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-950/80 p-2 rounded-xl border border-slate-700/60 shadow-inner">
-              <div className="flex items-center gap-2.5 px-3 flex-1 text-slate-400">
-                <Sparkles className="w-4 h-4 text-sky-400 shrink-0" />
-                <input
-                  type="text"
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="e.g. Find all seed-funded robotics startups founded in 2025..."
-                  className="bg-transparent text-xs sm:text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none w-full"
-                />
-              </div>
-              <Link href="/tasks">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="w-full sm:w-auto"
-                  icon={<ArrowRight className="w-4 h-4" />}
-                >
-                  Create Workflow
-                </Button>
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* Prominent AI Requirement Understanding Engine */}
+      <RequirementUnderstanding />
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

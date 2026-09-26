@@ -1,21 +1,26 @@
+"use client";
+
 import React from "react";
-import { PlaceholderPage } from "@/components/ui/PlaceholderPage";
-import { CheckSquare } from "lucide-react";
+import { CheckSquare, Sparkles } from "lucide-react";
+import { RequirementUnderstanding } from "@/components/workflow/RequirementUnderstanding";
 
 export default function TasksPage() {
   return (
-    <PlaceholderPage
-      title="Collection Tasks"
-      subtitle="Autonomous data harvesting pipelines and queue monitor"
-      badgeText="Phase 2 Feature"
-      icon={CheckSquare}
-      actionLabel="Create New Task"
-      plannedFeatures={[
-        "Natural language prompt to dynamic pipeline generator",
-        "Multi-source scraping and API extraction orchestrator",
-        "Real-time task execution progress, retry policies, and worker telemetry",
-        "Automated data cleaning, deduplication, and schema validation",
-      ]}
-    />
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <div>
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold mb-2">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>AI Workflow Specification</span>
+        </div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">
+          Workflow Generator & Requirement Analyzer
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          Specify your data needs in natural language. DataPilot automatically synthesizes entity targets, filter rules, field mappings, and workflow specifications.
+        </p>
+      </div>
+
+      <RequirementUnderstanding />
+    </div>
   );
 }

@@ -35,6 +35,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
+async def init_db() -> bool:
+    """Initialize database tables if connected."""
+    try:
+        from app.models import Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables initialized / verified.")
+        return True
+    except Exception as e:
+        logger.warning(f"Database initialization deferred (PostgreSQL may be offline): {e}")
+        return False
+
+
 async def check_database_connection() -> bool:
     """Utility to test database connectivity without throwing unhandled exceptions."""
     try:

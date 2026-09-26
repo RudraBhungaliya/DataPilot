@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.core.logger import logger
 from app.api.v1.api import api_router
 from app.services.redis import RedisService
-from app.db.session import engine
+from app.db.session import engine, init_db
 
 
 @asynccontextmanager
@@ -15,7 +15,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Initializing {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENVIRONMENT}]")
     logger.info(f"🔌 Allowed CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
     
-    # Optional early connection verification (non-blocking)
+    # Optional early database & redis initialization (non-blocking)
+    await init_db()
     try:
         redis_client = await RedisService.get_client()
         logger.info("Redis service client initialized.")
