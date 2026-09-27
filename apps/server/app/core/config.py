@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_URL: Union[str, None] = None
 
+    @property
+    def redis_connection_url(self) -> str:
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
+        return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
     # AI / LLM Configuration
     AI_PROVIDER: str = "gemini"
     AI_MODEL: str = "gemini-2.5-flash"
@@ -74,6 +81,16 @@ class Settings(BaseSettings):
     @property
     def effective_ai_api_key(self) -> Union[str, None]:
         return self.AI_API_KEY or self.GEMINI_API_KEY or os.getenv("AI_API_KEY") or os.getenv("GEMINI_API_KEY")
+
+    # Source Collection Engine Configuration (Phase 4)
+    DATAPILOT_HTTP_TIMEOUT: int = 20
+    DATAPILOT_HTTP_MAX_RETRIES: int = 3
+    DATAPILOT_HTTP_USER_AGENT: str = "DataPilot/0.1 (+https://github.com/RudraBhungaliya/DataPilot)"
+    DATAPILOT_REQUESTS_PER_DOMAIN: int = 5
+    DATAPILOT_MIN_REQUEST_INTERVAL: float = 0.5  # seconds between requests to same domain
+    DATAPILOT_MAX_DOCUMENT_SIZE_MB: int = 10
+    ZYTE_API_KEY: Union[str, None] = None
+    ZYTE_API_URL: str = "https://api.zyte.com/v1/extract"
 
 
 settings = Settings()

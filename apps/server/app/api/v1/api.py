@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, root, workflows
+from app.api.v1.endpoints import health, root, workflows, collection, sources
 
 api_router = APIRouter()
 
@@ -7,3 +7,5 @@ api_router = APIRouter()
 api_router.include_router(root.router, tags=["Root"])
 api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
+api_router.include_router(collection.router, prefix="/collection", tags=["Collection"])
+api_router.include_router(sources.router, prefix="/sources", tags=["Sources"])

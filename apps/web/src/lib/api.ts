@@ -68,9 +68,82 @@ export interface WorkflowRecord {
   id: string;
   prompt: string;
   parsed_requirement?: StructuredRequirement | null;
+  workflow_definition?: WorkflowDefinition | null;
   status: string;
+  error?: string | null;
+  execution_metadata?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+}
+
+export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+
+export type StepType =
+  | 'PARSE_REQUIREMENT'
+  | 'DISCOVER_SOURCES'
+  | 'COLLECT_DATA'
+  | 'EXTRACT_DATA'
+  | 'NORMALIZE_DATA'
+  | 'VALIDATE_DATA'
+  | 'DEDUPLICATE_DATA'
+  | 'BUILD_DATASET'
+  | 'EXPORT_DATA';
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  type: StepType;
+  description: string;
+  order: number;
+  depends_on: string[];
+  config: Record<string, any>;
+  status: StepStatus;
+  input?: any;
+  output?: any;
+  error?: string | null;
+  metadata: Record<string, any>;
+}
+
+export type WorkflowStatus =
+  | 'DRAFT'
+  | 'PARSED'
+  | 'CONFIRMED'
+  | 'PLANNED'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface WorkflowDefinition {
+  workflow_id: string;
+  name: string;
+  description: string;
+  status: WorkflowStatus;
+  input_requirement: StructuredRequirement;
+  steps: WorkflowStep[];
+  metadata: Record<string, any>;
+  error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PlanWorkflowResponse {
+  success: boolean;
+  workflow?: WorkflowDefinition | null;
+  error?: string | null;
+}
+
+export interface ExecuteWorkflowResponse {
+  success: boolean;
+  workflow?: WorkflowDefinition | null;
+  error?: string | null;
+}
+
+export interface WorkflowStepsResponse {
+  workflow_id: string;
+  status: WorkflowStatus;
+  steps: WorkflowStep[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -142,6 +215,89 @@ export async function parseRequirement(prompt: string): Promise<RequirementParse
   }
 }
 
+export async function planWorkflow(
+  requirement: StructuredRequirement,
+  prompt?: string,
+  workflowId?: string
+): Promise<PlanWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requirement,
+        prompt,
+        workflow_id: workflowId,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.detail || 'Unable to plan workflow.',
+      };
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Failed to communicate with workflow planning service.',
+    };
+  }
+}
+
+export async function executeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.detail || 'Workflow execution failed.',
+      };
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Failed to trigger workflow execution.',
+    };
+  }
+}
+
+export async function fetchWorkflowDefinition(workflowId: string): Promise<WorkflowRecord | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchWorkflowSteps(workflowId: string): Promise<WorkflowStepsResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/steps`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function createWorkflow(
   prompt: string,
   requirement: StructuredRequirement
@@ -177,3 +333,124 @@ export async function fetchWorkflows(): Promise<WorkflowRecord[]> {
     return [];
   }
 }
+
+// ============================================================================
+// Phase 4: Source Collection Engine Interfaces & APIs
+// ============================================================================
+
+export interface SourceDefinition {
+  id: string;
+  name: string;
+  domain: string;
+  type: string;
+  access_method: string;
+  status: string;
+  tier: number;
+  rate_limit_per_minute: number;
+  requires_auth: boolean;
+  supports_pagination: boolean;
+  success_rate: number;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CollectionJob {
+  id: string;
+  request_id: string;
+  workflow_id?: string | null;
+  status: string;
+  collection_request?: Record<string, any>;
+  discovered_sources?: any[];
+  selected_sources?: any[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  errors?: any[];
+  metadata?: Record<string, any>;
+  created_at?: string;
+}
+
+export interface RawDocument {
+  id: string;
+  job_id: string;
+  source_id: string;
+  url: string;
+  canonical_url: string;
+  content_type: string;
+  content?: string;
+  content_hash: string;
+  status_code: number;
+  collected_at: string;
+  metadata?: Record<string, any>;
+}
+
+export async function fetchSources(): Promise<SourceDefinition[]> {
+  try {
+    const res = await fetch(`${API_BASE}/sources`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchCollectionJobs(): Promise<CollectionJob[]> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchDocuments(jobId?: string): Promise<RawDocument[]> {
+  try {
+    const url = jobId
+      ? `${API_BASE}/collection/documents?job_id=${encodeURIComponent(jobId)}`
+      : `${API_BASE}/collection/documents`;
+    const res = await fetch(url, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function testDiscoverSources(params: {
+  query: string;
+  domain?: string;
+  entity?: string;
+}): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/discover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function triggerDirectCollection(requestPayload: any): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestPayload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+

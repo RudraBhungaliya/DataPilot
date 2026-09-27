@@ -1,10 +1,12 @@
 """
 Workflows and AI Requirement Parsing Endpoints.
+Provides Phase 2 requirement parsing and Phase 3 workflow planning and execution APIs.
 """
 
 from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
 
 from app.ai.schemas import (
     RequirementParseRequest,
@@ -13,10 +15,17 @@ from app.ai.schemas import (
 )
 from app.ai.parser import RequirementParsingError
 from app.ai.provider import LLMAuthenticationError, LLMTimeoutError
+from app.workflows.schemas import (
+    WorkflowDefinition,
+    PlanWorkflowRequest,
+    PlanWorkflowResponse,
+    ExecuteWorkflowResponse,
+    WorkflowStepsResponse,
+)
+from app.workflows.validator import WorkflowValidationError
 from app.services.workflow import WorkflowService
 from app.db.session import get_db
 from app.core.logger import logger
-from pydantic import BaseModel, Field
 
 router = APIRouter()
 workflow_service = WorkflowService()
@@ -31,11 +40,18 @@ class CreateWorkflowRequest(BaseModel):
 class WorkflowResponse(BaseModel):
     id: str
     prompt: str
-    parsed_requirement: Optional[Dict[str, Any]]
+    parsed_requirement: Optional[Dict[str, Any]] = None
+    workflow_definition: Optional[Dict[str, Any]] = None
     status: str
+    error: Optional[str] = None
+    execution_metadata: Optional[Dict[str, Any]] = None
     created_at: Any
     updated_at: Any
 
+
+# ---------------------------------------------------------------------------
+# Phase 2: AI Requirement Understanding
+# ---------------------------------------------------------------------------
 
 @router.post(
     "/parse",
@@ -96,6 +112,127 @@ async def parse_requirement(
             detail="An unexpected error occurred while analyzing the requirement. Please try again.",
         )
 
+
+# ---------------------------------------------------------------------------
+# Phase 3: Workflow Planning & Execution
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/plan",
+    response_model=PlanWorkflowResponse,
+    summary="Generate deterministic workflow execution plan from structured requirement",
+    status_code=status.HTTP_200_OK,
+)
+async def plan_workflow(
+    payload: PlanWorkflowRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PlanWorkflowResponse:
+    """
+    Translates a structured requirement from Phase 2 into a validated,
+    deterministic workflow DAG plan with ordered steps and dependencies.
+    """
+    try:
+        workflow_def = await workflow_service.plan_workflow(
+            requirement=payload.requirement,
+            prompt=payload.prompt,
+            workflow_id=payload.workflow_id,
+            db=db,
+        )
+        return PlanWorkflowResponse(
+            success=True,
+            workflow=workflow_def,
+            error=None,
+        )
+    except WorkflowValidationError as val_err:
+        logger.warning(f"Workflow plan validation failed: {val_err}")
+        return PlanWorkflowResponse(
+            success=False,
+            workflow=None,
+            error=f"Validation failed: {str(val_err)}",
+        )
+    except Exception as e:
+        logger.error(f"Workflow planning unexpected error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to generate workflow plan: {str(e)}",
+        )
+
+
+@router.post(
+    "/{workflow_id}/execute",
+    response_model=ExecuteWorkflowResponse,
+    summary="Execute planned workflow using mock step executors",
+    status_code=status.HTTP_200_OK,
+)
+async def execute_workflow(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ExecuteWorkflowResponse:
+    """
+    Runs the workflow's dependency graph step by step using Phase 3 mock executors.
+    Updates step states (PENDING -> RUNNING -> COMPLETED / FAILED) and persists outcomes.
+    """
+    try:
+        executed_def = await workflow_service.execute_workflow(
+            workflow_id=workflow_id,
+            db=db,
+        )
+        return ExecuteWorkflowResponse(
+            success=True,
+            workflow=executed_def,
+            error=executed_def.error,
+        )
+    except ValueError as ve:
+        logger.warning(f"Workflow execution not found or invalid: {ve}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(ve),
+        )
+    except Exception as e:
+        logger.error(f"Workflow execution failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Workflow execution failed: {str(e)}",
+        )
+
+
+@router.get(
+    "/{workflow_id}/steps",
+    response_model=WorkflowStepsResponse,
+    summary="Get workflow steps and current execution states",
+    status_code=status.HTTP_200_OK,
+)
+async def get_workflow_steps(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> WorkflowStepsResponse:
+    """
+    Retrieves the ordered steps, execution states, outputs, and errors for a specific workflow.
+    """
+    workflow_def = await workflow_service.get_workflow_definition(workflow_id=workflow_id, db=db)
+    if not workflow_def:
+        # Check if record exists without definition
+        record = await workflow_service.get_workflow_by_id(workflow_id=workflow_id, db=db)
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow with ID '{workflow_id}' not found.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Workflow '{workflow_id}' has not been planned yet. Call /plan first.",
+        )
+
+    return WorkflowStepsResponse(
+        workflow_id=workflow_def.workflow_id,
+        status=workflow_def.status,
+        steps=workflow_def.steps,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workflow Persistence & Listing Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post(
     "",

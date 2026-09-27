@@ -78,9 +78,9 @@ export default function DashboardPage() {
         <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 space-y-3 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Phase 2: AI Requirement Understanding Active</span>
+            <span>Phase 4: Source Collection Engine Active</span>
           </div>
 
           <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
@@ -88,7 +88,7 @@ export default function DashboardPage() {
           </h1>
 
           <p className="text-sm md:text-base text-slate-400 leading-relaxed">
-            Turn natural language business requirements into validated, structured workflow specifications ready for autonomous collection and data pipelines.
+            Turn natural language business requirements into validated workflows, autonomously discover sources, and collect raw datasets with compliance guards.
           </p>
         </div>
       </div>
