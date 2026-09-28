@@ -472,12 +472,13 @@ ZYTE_API_URL=https://api.zyte.com/v1/extract
 
 ### 🧪 Database Migrations
 
-Apply the Phase 4 database tables (`sources`, `collection_jobs`, `documents`):
+Apply the database schema using Alembic (versioned migrations):
 
 ```bash
 cd apps/server
+alembic upgrade head
+# Or via the helper entry point:
 python -m app.db.migrate
-# Or execute SQL: app/db/migrations/0002_phase4_collection_tables.sql
 ```
 
 ---

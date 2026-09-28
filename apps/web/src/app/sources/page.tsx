@@ -170,7 +170,7 @@ export default function SourcesPage() {
               Source Connectors & Raw Document Store
             </h1>
             <p className="text-sm text-slate-400">
-              Deterministic routing, robots.txt compliance, anti-SSRF protections, sliding-window rate limiters, and content-hashed document repository.
+              Deterministic routing, SSRF guardrails, sliding-window rate limiters, and a content-hashed document repository.
             </p>
           </div>
 
@@ -224,7 +224,7 @@ export default function SourcesPage() {
             <ShieldCheck className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-sm font-semibold text-white mt-2">Strict Policy</div>
-          <div className="text-xs text-sky-400/80 mt-1">Robots.txt + Anti-SSRF Safe</div>
+          <div className="text-xs text-sky-400/80 mt-1">SSRF Guard + Policy Safe</div>
         </Card>
       </div>
 
