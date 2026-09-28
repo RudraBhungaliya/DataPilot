@@ -179,6 +179,54 @@ def test_execute_async_endpoint_queues_job():
     assert client.get("/api/v1/jobs/does-not-exist").status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_job_cancel_and_retry_service():
+    from app.jobs.service import get_job_service, JobStatus
+
+    service = get_job_service()
+    job = await service.submit("test.noop", {"a": 1})
+    assert await service.cancel(job.id) is True
+    assert (await service.get(job.id)).status == JobStatus.CANCELLED.value
+
+    # Retry re-queues with the same kind/payload under a new id
+    retried = await service.retry(job.id)
+    assert retried.id != job.id
+    assert retried.status == JobStatus.QUEUED.value
+    assert retried.payload == {"a": 1}
+
+    # Retrying an unknown job returns None
+    assert await service.retry("task_missing") is None
+
+
+def test_job_control_endpoints_not_found():
+    client = TestClient(app)
+    assert client.post("/api/v1/jobs/task_missing/cancel").status_code == 404
+    assert client.post("/api/v1/jobs/task_missing/retry").status_code == 404
+
+
+def test_schedule_endpoints():
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/schedules",
+        json={"name": "weekly", "kind": "workflow.execute", "target_id": "wf_x", "interval_seconds": 3600},
+    )
+    assert created.status_code == 201
+    schedule_id = created.json()["id"]
+    assert created.json()["enabled"] is True
+
+    listing = client.get("/api/v1/schedules")
+    assert listing.status_code == 200
+    assert any(s["id"] == schedule_id for s in listing.json())
+
+    # Validation: bad kind / too-small interval
+    assert client.post("/api/v1/schedules", json={"kind": "nope", "target_id": "x", "interval_seconds": 60}).status_code == 400
+    assert client.post("/api/v1/schedules", json={"kind": "workflow.execute", "target_id": "x", "interval_seconds": 5}).status_code in (400, 422)
+
+    assert client.delete(f"/api/v1/schedules/{schedule_id}").status_code == 200
+    assert client.delete(f"/api/v1/schedules/{schedule_id}").status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Robots.txt enforcement
 # ---------------------------------------------------------------------------

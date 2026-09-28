@@ -7,7 +7,7 @@ from typing import Awaitable, Callable, Dict, Optional
 
 from app.core.logger import logger
 from app.jobs import queue
-from app.jobs.service import get_job_service
+from app.jobs.service import JobStatus, get_job_service
 
 Handler = Callable[[Dict], Awaitable[Dict]]
 
@@ -35,12 +35,23 @@ class Worker:
             logger.warning(f"Background job '{job_id}' not found; skipping.")
             return
 
+        if job.status == JobStatus.CANCELLED.value or getattr(job, "cancel_requested", False):
+            await service.mark_cancelled(job_id)
+            return
+
         handler = self._handlers.get(job.kind)
         await service.mark_running(job_id)
         try:
             if handler is None:
                 raise ValueError(f"No handler registered for job kind '{job.kind}'")
             result = await handler(job.payload or {})
+
+            refreshed = await service.get(job_id)
+            if refreshed is not None and getattr(refreshed, "cancel_requested", False):
+                await service.mark_cancelled(job_id)
+                logger.info(f"Background job '{job_id}' ({job.kind}) cancelled during execution.")
+                return
+
             await service.mark_completed(job_id, result if isinstance(result, dict) else {"result": result})
             logger.info(f"Background job '{job_id}' ({job.kind}) completed.")
         except Exception as e:
@@ -50,6 +61,7 @@ class Worker:
     async def run_forever(self) -> None:
         self._running = True
         logger.info("Background worker started.")
+        ticks = 0
         while self._running:
             try:
                 job_id = await queue.dequeue(timeout=1.0)
@@ -59,8 +71,18 @@ class Worker:
                 logger.warning(f"Worker dequeue error: {e}")
                 await asyncio.sleep(0.5)
                 continue
+
             if job_id:
                 await self.process(job_id)
+
+            # Periodically enqueue any due scheduled tasks
+            ticks += 1
+            if ticks % 5 == 0:
+                try:
+                    from app.jobs.scheduler import get_schedule_service
+                    await get_schedule_service().run_due()
+                except Exception as e:
+                    logger.warning(f"Scheduler tick failed: {e}")
 
     def stop(self) -> None:
         self._running = False

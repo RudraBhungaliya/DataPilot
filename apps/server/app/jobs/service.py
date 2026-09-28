@@ -23,6 +23,7 @@ class JobStatus(str, Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class JobService:
@@ -38,6 +39,8 @@ class JobService:
             kind=kind,
             status=JobStatus.QUEUED.value,
             payload=payload or {},
+            progress=0.0,
+            cancel_requested=False,
         )
         self._memory[job.id] = job
         await self._persist(job)
@@ -73,13 +76,19 @@ class JobService:
         return job
 
     async def mark_running(self, job_id: str) -> None:
-        await self._update(job_id, status=JobStatus.RUNNING.value, started_at=datetime.now(timezone.utc))
+        await self._update(
+            job_id,
+            status=JobStatus.RUNNING.value,
+            progress=0.1,
+            started_at=datetime.now(timezone.utc),
+        )
 
     async def mark_completed(self, job_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         await self._update(
             job_id,
             status=JobStatus.COMPLETED.value,
             result=result or {},
+            progress=1.0,
             finished_at=datetime.now(timezone.utc),
         )
 
@@ -90,6 +99,34 @@ class JobService:
             error=error[:2000],
             finished_at=datetime.now(timezone.utc),
         )
+
+    async def mark_cancelled(self, job_id: str) -> None:
+        await self._update(
+            job_id,
+            status=JobStatus.CANCELLED.value,
+            finished_at=datetime.now(timezone.utc),
+        )
+
+    async def cancel(self, job_id: str) -> bool:
+        """Requests cancellation of a queued/running job. Returns True if applied."""
+        job = await self.get(job_id)
+        if job is None:
+            return False
+        if job.status in (JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value):
+            return False
+        await self._update(job_id, cancel_requested=True, status=JobStatus.CANCELLED.value)
+        logger.info(f"Background job '{job_id}' cancelled.")
+        return True
+
+    async def retry(self, job_id: str) -> Optional[BackgroundJob]:
+        """Re-queues a finished job with the same kind and payload."""
+        job = await self.get(job_id)
+        if job is None:
+            return None
+        return await self.submit(job.kind, dict(job.payload or {}))
+
+    async def set_progress(self, job_id: str, progress: float) -> None:
+        await self._update(job_id, progress=max(0.0, min(1.0, float(progress))))
 
     async def get(self, job_id: str) -> Optional[BackgroundJob]:
         job = self._memory.get(job_id)

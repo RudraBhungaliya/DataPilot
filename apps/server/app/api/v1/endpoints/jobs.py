@@ -29,6 +29,8 @@ class JobResponse(BaseModel):
     payload: dict = Field(default_factory=dict)
     result: Optional[dict] = None
     error: Optional[str] = None
+    progress: float = 0.0
+    cancel_requested: bool = False
     created_at: Optional[Any] = None
     started_at: Optional[Any] = None
     finished_at: Optional[Any] = None
@@ -58,3 +60,26 @@ async def get_job(job_id: str) -> JobResponse:
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found.")
     return JobResponse.model_validate(job, from_attributes=True)
+
+
+@router.post("/{job_id}/cancel", response_model=JobResponse, summary="Cancel a background job", status_code=status.HTTP_200_OK)
+async def cancel_job(job_id: str) -> JobResponse:
+    """Requests cancellation of a queued or running job."""
+    service = get_job_service()
+    job = await service.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found.")
+    if not await service.cancel(job_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already finished.")
+    return JobResponse.model_validate(await service.get(job_id), from_attributes=True)
+
+
+@router.post("/{job_id}/retry", response_model=JobSubmitResponse, summary="Retry a background job", status_code=status.HTTP_202_ACCEPTED)
+async def retry_job(job_id: str) -> JobSubmitResponse:
+    """Re-queues a finished job with the same kind and payload."""
+    service = get_job_service()
+    job = await service.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found.")
+    retried = await service.retry(job_id)
+    return JobSubmitResponse(id=retried.id, kind=retried.kind, status=retried.status)

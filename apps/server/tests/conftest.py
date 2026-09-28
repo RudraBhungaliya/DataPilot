@@ -117,3 +117,24 @@ def _mock_db_dependency():
         yield
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_external_services(monkeypatch):
+    """
+    Keeps background jobs and rate limiting in-memory during tests so no test
+    depends on (or interferes with) the shared Redis instance or a database
+    connection bound to another event loop.
+    """
+    async def _no_redis():
+        return None
+
+    monkeypatch.setattr("app.jobs.queue._redis", _no_redis, raising=False)
+    monkeypatch.setattr("app.core.rate_limit._get_limiter_client", _no_redis, raising=False)
+
+    def _no_db():
+        raise RuntimeError("database disabled in tests")
+
+    monkeypatch.setattr("app.jobs.service.AsyncSessionLocal", _no_db, raising=False)
+    monkeypatch.setattr("app.jobs.scheduler.AsyncSessionLocal", _no_db, raising=False)
+    yield

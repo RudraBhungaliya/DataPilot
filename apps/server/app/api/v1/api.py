@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_api_key
-from app.api.v1.endpoints import auth, collection, datasets, health, jobs, root, sources, workflows
+from app.api.v1.endpoints import auth, collection, datasets, health, jobs, root, schedules, sources, workflows
 
 api_router = APIRouter()
 
@@ -17,3 +17,4 @@ api_router.include_router(collection.router, prefix="/collection", tags=["Collec
 api_router.include_router(sources.router, prefix="/sources", tags=["Sources"], dependencies=protected)
 api_router.include_router(datasets.router, prefix="/datasets", tags=["Datasets"], dependencies=protected)
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"], dependencies=protected)
+api_router.include_router(schedules.router, prefix="/schedules", tags=["Schedules"], dependencies=protected)
