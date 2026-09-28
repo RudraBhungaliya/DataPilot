@@ -265,6 +265,40 @@ export default function DatasetsPage() {
             </div>
 
             <div className="p-4 overflow-auto flex-1">
+              {/* Field coverage: shows what the collected sources actually provided */}
+              {selected.metadata?.field_coverage &&
+                Object.keys(selected.metadata.field_coverage as Record<string, number>).length > 0 && (
+                  <div className="mb-4 p-3 rounded-lg bg-slate-950/60 border border-slate-800">
+                    <div className="text-[11px] uppercase tracking-wider font-semibold text-slate-400 mb-2">
+                      Field coverage
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(selected.metadata.field_coverage as Record<string, number>).map(
+                        ([field, pct]) => (
+                          <span
+                            key={field}
+                            title={pct === 0 ? "Not found in any collected source" : undefined}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono border ${
+                              pct >= 0.5
+                                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                                : pct > 0
+                                ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                : "bg-rose-500/10 text-rose-300 border-rose-500/30"
+                            }`}
+                          >
+                            {field}: {Math.round(pct * 100)}%
+                          </span>
+                        )
+                      )}
+                    </div>
+                    {selected.metadata?.mean_completeness !== undefined && (
+                      <div className="text-[11px] text-slate-500 mt-2">
+                        Mean completeness:{" "}
+                        {Math.round((selected.metadata.mean_completeness as number) * 100)}%
+                      </div>
+                    )}
+                  </div>
+                )}
               {recordsLoading ? (
                 <p className="text-sm text-slate-400">Loading records...</p>
               ) : records.length === 0 ? (

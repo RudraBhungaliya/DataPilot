@@ -52,6 +52,7 @@ export interface StructuredRequirement {
   source_preferences: string[];
   output_format: 'table' | 'json' | 'csv';
   confidence_score?: number;
+  assumptions?: string[];
   is_ambiguous?: boolean;
   clarification_needed?: string | null;
 }
@@ -435,6 +436,16 @@ export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
   }
 }
 
+export async function fetchRecentDocuments(): Promise<RawDocument[]> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/documents?limit=50`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function createCollectionJob(
   collectionRequest: Record<string, any>
 ): Promise<{ ok: boolean; status: number; data: any }> {
@@ -557,6 +568,8 @@ export interface DatasetRecord {
   confidence: number;
   is_valid: boolean;
   validation_errors: string[];
+  missing_fields: string[];
+  completeness: number;
   dedupe_key?: string | null;
   is_duplicate: boolean;
 }

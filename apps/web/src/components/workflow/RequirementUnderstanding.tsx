@@ -249,22 +249,23 @@ export function RequirementUnderstanding() {
         </div>
       )}
 
-      {/* Ambiguous Requirement State */}
-      {requirement?.is_ambiguous && !loading && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-amber-300">
-          <HelpCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" />
+      {/* Assumptions (non-blocking - DataPilot never asks questions) */}
+      {requirement && !loading && (requirement.assumptions?.length ?? 0) > 0 && (
+        <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-start gap-3 text-sky-200">
+          <HelpCircle className="w-5 h-5 shrink-0 mt-0.5 text-sky-400" />
           <div className="text-xs sm:text-sm space-y-1">
-            <span className="font-semibold block">Clarification Needed</span>
-            <p className="text-slate-300">
-              {requirement.clarification_needed ||
-                "Your requirement is somewhat ambiguous. Please provide specific entity types, attributes, or locations."}
-            </p>
+            <span className="font-semibold block">Assumptions made</span>
+            <ul className="list-disc list-inside text-slate-300 space-y-0.5">
+              {requirement.assumptions!.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
 
-      {/* Structured Result Display */}
-      {requirement && !requirement.is_ambiguous && !loading && (
+      {/* Structured Result Display (always shown - never blocked on clarification) */}
+      {requirement && !loading && (
         <div className="space-y-4">
           {/* Status Header Banner */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
