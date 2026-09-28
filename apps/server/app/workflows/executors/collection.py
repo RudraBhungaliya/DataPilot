@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 from app.workflows.executors.base import BaseStepExecutor, ExecutionContext, StepResult
 from app.workflows.schemas import WorkflowStep
 from app.collection.service import CollectionService
+from app.collection.dependencies import get_collection_service
 from app.collection.schemas import CollectionRequest, CollectionLimits, SourceDefinition
 from app.core.logger import logger
 
@@ -17,7 +18,7 @@ class CollectionStepExecutor(BaseStepExecutor):
     """
 
     def __init__(self, service: Optional[CollectionService] = None):
-        self.service = service or CollectionService()
+        self.service = service or get_collection_service()
 
     async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
         req = context.input_requirement

@@ -23,6 +23,7 @@ from app.collection.discovery.registry import SourceRegistry
 from app.collection.manager import CollectionManager
 from app.collection.storage.document_store import RawDocumentStore
 from app.models.collection_job import CollectionJob
+from app.core.config import settings
 from app.core.logger import logger
 
 
@@ -46,6 +47,14 @@ class CollectionService:
             document_store=self.document_store,
         )
         self._memory_jobs: Dict[str, CollectionJob] = {}
+
+    def _remember_job(self, job: CollectionJob) -> None:
+        """Stores a job in the in-memory fallback map, evicting oldest beyond the bound."""
+        self._memory_jobs[job.id] = job
+        overflow = len(self._memory_jobs) - settings.DATAPILOT_MAX_IN_MEMORY_JOBS
+        if overflow > 0:
+            for key in list(self._memory_jobs.keys())[:overflow]:
+                self._memory_jobs.pop(key, None)
 
     async def create_job(
         self,
@@ -76,7 +85,7 @@ class CollectionService:
             errors=[],
         )
 
-        self._memory_jobs[job_id] = job
+        self._remember_job(job)
 
         if db is not None:
             try:

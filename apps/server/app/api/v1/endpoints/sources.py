@@ -6,11 +6,11 @@ Provides REST APIs for viewing and managing registered data sources and connecto
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Query
 from app.collection.schemas import SourceDefinition, SourceStatus
-from app.collection.discovery.registry import SourceRegistry
+from app.collection.dependencies import get_source_registry
 from app.core.logger import logger
 
 router = APIRouter()
-source_registry = SourceRegistry()
+source_registry = get_source_registry()
 
 
 @router.get(

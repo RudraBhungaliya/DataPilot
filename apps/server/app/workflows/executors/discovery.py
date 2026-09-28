@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 from app.workflows.executors.base import BaseStepExecutor, ExecutionContext, StepResult
 from app.workflows.schemas import WorkflowStep
 from app.collection.discovery.discovery import SourceDiscovery
+from app.collection.dependencies import get_source_registry
 from app.collection.schemas import CollectionRequest, CollectionLimits, CollectionStrategy
 from app.core.logger import logger
 
@@ -17,7 +18,7 @@ class SourceDiscoveryStepExecutor(BaseStepExecutor):
     """
 
     def __init__(self, discovery: Optional[SourceDiscovery] = None):
-        self.discovery = discovery or SourceDiscovery()
+        self.discovery = discovery or SourceDiscovery(registry=get_source_registry())
 
     async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
         req = context.input_requirement

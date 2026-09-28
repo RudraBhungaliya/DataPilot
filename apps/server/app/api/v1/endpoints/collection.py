@@ -14,12 +14,12 @@ from app.collection.schemas import (
     SourceDefinition,
     RawDocument,
 )
-from app.collection.service import CollectionService
+from app.collection.dependencies import get_collection_service
 from app.db.session import get_db
 from app.core.logger import logger
 
 router = APIRouter()
-collection_service = CollectionService()
+collection_service = get_collection_service()
 
 
 class CreateJobRequest(BaseModel):
@@ -236,6 +236,11 @@ async def get_job_documents(
         )
 
     docs = await collection_service.get_documents(job_id=job_id, limit=limit, offset=offset, db=db)
+    # Avoid returning multi-MB raw payloads in list responses; expose a bounded preview.
+    preview_limit = 2000
+    for doc in docs:
+        if doc.content and len(doc.content) > preview_limit:
+            doc.content = doc.content[:preview_limit]
     return JobDocumentsResponse(
         job_id=job_id,
         total=len(docs),
