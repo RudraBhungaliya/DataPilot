@@ -284,6 +284,47 @@ Step Executors (Phase 3 Mock Registry → Phase 4 Real Scrapers)
   - Raw document store (HTML, JSON, XML, text) preserving provenance and content integrity
   - Full per-domain sliding rate limiter, exponential backoff retries, and canonical URL caching
   - Workflow Engine integration replacing mocks for `DISCOVER_SOURCES` and `COLLECT_DATA`
+- [x] **Phase 5: Data Intelligence Pipeline**
+  - LLM-first extraction with a deterministic JSON fast-path, full provenance per record
+  - Normalization, scored (lenient/strict) validation, composite-key deduplication
+  - Dataset compilation with field coverage, CSV/JSON/JSONL export
+  - Real executors replacing the mocks for `EXTRACT/NORMALIZE/VALIDATE/DEDUPLICATE/BUILD_DATASET/EXPORT_DATA`
+- [x] **Phase 6: Dataset & Evidence Platform**
+  - Dataset search, filter, sort and pagination; versioning with `is_latest`
+  - Per-record evidence/lineage (record → raw document → registered source) with verification status
+  - Datasets explorer UI, workflow & background-task history, CSV/JSON/JSONL export
+- [x] **Phase 7: Production & Intelligence**
+  - API-key authentication (hashed keys, X-API-Key), per-client Redis rate limiting
+  - Background job queue + worker, execute-async endpoints, job monitoring
+  - Prometheus `/metrics`, request timing, slow-request logging
+  - Configurable robots.txt enforcement, SSRF guardrails, health/readiness
+
+---
+
+## 🚀 Phase 6 & 7 — API Reference
+
+### Datasets (Phase 6)
+- `GET /api/v1/datasets?workflow_id=&latest_only=`: list datasets (with version).
+- `GET /api/v1/datasets/{id}`: dataset metadata + field coverage.
+- `GET /api/v1/datasets/{id}/records?q=&field=&value=&sort=&order=&limit=&offset=`: search/filter/sort/page.
+- `GET /api/v1/datasets/{id}/records/{record_id}/evidence`: record provenance chain.
+- `GET /api/v1/datasets/{id}/export/{csv|json|jsonl}`: export.
+
+### Operations (Phase 7)
+- `POST /api/v1/auth/keys` · `GET /api/v1/auth/keys` · `DELETE /api/v1/auth/keys/{id}`: API keys.
+- `POST /api/v1/workflows/{id}/execute-async` · `POST /api/v1/collection/jobs/{id}/execute-async`: queue jobs (202).
+- `GET /api/v1/jobs` · `GET /api/v1/jobs/{id}` · `GET /api/v1/jobs/stats`: monitor jobs/queue.
+- `GET /metrics`: Prometheus metrics.
+
+### Production configuration
+```env
+AUTH_ENABLED=True
+BOOTSTRAP_API_KEY=<first-run admin key>
+RATE_LIMIT_PER_MINUTE=120
+RUN_EMBEDDED_WORKER=True        # or False to run a dedicated worker
+METRICS_ENABLED=True
+DATAPILOT_ROBOTS_ENFORCED=True
+```
 
 ---
 
