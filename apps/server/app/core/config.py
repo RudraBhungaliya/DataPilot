@@ -77,18 +77,33 @@ class Settings(BaseSettings):
     AI_API_KEY: Union[str, None] = None
     GROQ_API_KEY: Union[str, None] = None
     GEMINI_API_KEY: Union[str, None] = None
+    AI_FALLBACK_MODELS: List[str] = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+    ]
     AI_TIMEOUT_SECONDS: int = 30
 
     @property
     def effective_ai_api_key(self) -> Union[str, None]:
-        return (
-            self.AI_API_KEY
-            or self.GROQ_API_KEY
-            or self.GEMINI_API_KEY
-            or os.getenv("AI_API_KEY")
-            or os.getenv("GROQ_API_KEY")
-            or os.getenv("GEMINI_API_KEY")
-        )
+        """
+        Returns the API key matching the configured provider.
+
+        A provider-specific key is never mixed with another provider's key. An
+        explicit generic AI_API_KEY always takes precedence.
+        """
+        provider = (self.AI_PROVIDER or "groq").strip().lower()
+        if provider in ("gemini", "google"):
+            specific = self.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+        elif provider in ("groq", "llama"):
+            specific = self.GROQ_API_KEY or os.getenv("GROQ_API_KEY")
+        else:
+            specific = (
+                self.GROQ_API_KEY
+                or self.GEMINI_API_KEY
+                or os.getenv("GROQ_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+            )
+        return self.AI_API_KEY or os.getenv("AI_API_KEY") or specific
 
     # Source Collection Engine Configuration (Phase 4)
     DATAPILOT_HTTP_TIMEOUT: int = 20

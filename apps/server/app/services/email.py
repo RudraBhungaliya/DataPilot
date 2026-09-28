@@ -7,6 +7,7 @@ Supports swappable providers: SMTPEmailProvider and InMemoryEmailProvider.
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
+import asyncio
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -91,19 +92,28 @@ class SMTPEmailProvider(EmailProvider):
             msg["Subject"] = message.subject
             msg.attach(MIMEText(message.body, "plain"))
 
-            # Send synchronously via standard library inside async-safe executor
-            server = smtplib.SMTP(self.host, self.port, timeout=10)
-            if self.use_tls:
-                server.starttls()
-            if self.username and self.password:
-                server.login(self.username, self.password)
-            server.sendmail(message.from_email, [message.to_email], msg.as_string())
-            server.quit()
+            # SMTP is blocking I/O; run it in a worker thread to avoid stalling the event loop
+            await asyncio.to_thread(self._deliver_sync, msg, message)
             logger.info(f"[SMTPEmail] Sent email to {message.to_email} via {self.host}:{self.port}")
             return True
         except Exception as e:
             logger.error(f"[SMTPEmail] Failed to send email to {message.to_email}: {e}")
             return False
+
+    def _deliver_sync(self, msg: MIMEMultipart, message: EmailMessage) -> None:
+        """Synchronous SMTP delivery executed inside a worker thread."""
+        server = smtplib.SMTP(self.host, self.port, timeout=10)
+        try:
+            if self.use_tls:
+                server.starttls()
+            if self.username and self.password:
+                server.login(self.username, self.password)
+            server.sendmail(message.from_email, [message.to_email], msg.as_string())
+        finally:
+            try:
+                server.quit()
+            except Exception:
+                pass
 
 
 class EmailService:

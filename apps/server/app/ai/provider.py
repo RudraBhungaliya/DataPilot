@@ -246,7 +246,7 @@ class GroqProvider(LLMProvider):
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key if api_key is not None else settings.effective_ai_api_key
-        self.model = model or settings.AI_MODEL or "openai/gpt-oss-120b"
+        self.model = model or settings.AI_MODEL or "llama-3.3-70b-versatile"
         self.timeout = float(settings.AI_TIMEOUT_SECONDS or 30)
 
     async def generate_json(
@@ -281,8 +281,8 @@ class GroqProvider(LLMProvider):
         }
 
         models_to_try = [self.model]
-        for candidate in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "llama-3.1-8b-instant"]:
-            if candidate not in models_to_try:
+        for candidate in settings.AI_FALLBACK_MODELS:
+            if candidate and candidate not in models_to_try:
                 models_to_try.append(candidate)
 
         try:

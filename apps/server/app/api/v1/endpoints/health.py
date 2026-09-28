@@ -25,10 +25,9 @@ async def health_check() -> HealthResponse:
     # Determine overall status
     if db_connected and redis_connected:
         overall_status = "healthy"
-    elif db_connected or redis_connected:
-        overall_status = "degraded"
     else:
-        overall_status = "healthy" if settings.ENVIRONMENT == "development" else "degraded"
+        # Either dependency being unavailable means the service is degraded.
+        overall_status = "degraded"
 
     return HealthResponse(
         status=overall_status,
