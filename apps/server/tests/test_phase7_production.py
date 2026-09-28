@@ -179,3 +179,24 @@ def test_execute_async_endpoint_queues_job():
     assert client.get("/api/v1/jobs/does-not-exist").status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Robots.txt enforcement
+# ---------------------------------------------------------------------------
+
+def test_robots_enforcement():
+    from app.collection.policies import AccessDeniedException, SourceAccessPolicy
+
+    # Disabled (default): never blocks
+    permissive = SourceAccessPolicy(robots_enforced=False)
+    assert permissive.is_robots_allowed("https://example.com/private") is True
+
+    # Enabled: consults cached rules
+    policy = SourceAccessPolicy(robots_enforced=True)
+    policy.set_robots_rules("example.com", "User-agent: *\nDisallow: /private")
+    assert policy.is_robots_allowed("https://example.com/public") is True
+    assert policy.is_robots_allowed("https://example.com/private") is False
+    with pytest.raises(AccessDeniedException):
+        policy.check_all("https://example.com/private", None)
+
+
+

@@ -1,20 +1,68 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Settings, Server, Database, HardDrive, ShieldCheck, Key, CheckCircle2 } from "lucide-react";
+import { Settings, Server, Database, HardDrive, ShieldCheck, Key, CheckCircle2, Plus, Trash2, Power } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { fetchHealth, fetchApiRoot, HealthData, ApiRootData } from "@/lib/api";
+import {
+  fetchHealth,
+  fetchApiRoot,
+  fetchApiKeys,
+  createApiKey,
+  revokeApiKey,
+  getApiKey,
+  setApiKey,
+  HealthData,
+  ApiRootData,
+  ApiKeyRecord,
+} from "@/lib/api";
 
 export default function SettingsPage() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [apiInfo, setApiInfo] = useState<ApiRootData | null>(null);
+  const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
+  const [newKeyName, setNewKeyName] = useState("dashboard-key");
+  const [issuedKey, setIssuedKey] = useState<string | null>(null);
+  const [activeKey, setActiveKeyState] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadKeys = async () => setKeys(await fetchApiKeys());
 
   useEffect(() => {
     fetchHealth().then(setHealth);
     fetchApiRoot().then(setApiInfo);
+    setActiveKeyState(getApiKey());
+    loadKeys();
   }, []);
+
+  const handleCreateKey = async () => {
+    setBusy(true);
+    try {
+      const created = await createApiKey(newKeyName || "dashboard-key");
+      if (created) {
+        setIssuedKey(created.api_key);
+        await loadKeys();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRevoke = async (keyId: string) => {
+    setBusy(true);
+    try {
+      await revokeApiKey(keyId);
+      await loadKeys();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUseKey = (key: string | null) => {
+    setApiKey(key);
+    setActiveKeyState(key);
+  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -131,6 +179,97 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader
+          title="API Access"
+          subtitle="Manage API keys. When AUTH_ENABLED is on, every API request must send X-API-Key."
+          action={
+            <Badge variant="info">
+              <Key className="w-3 h-3" /> Auth
+            </Badge>
+          }
+        />
+
+        <div className="space-y-4 text-xs">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="Key name"
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500/50"
+            />
+            <Button size="sm" onClick={handleCreateKey} disabled={busy} icon={<Plus className="w-3.5 h-3.5" />}>
+              Create key
+            </Button>
+          </div>
+
+          {issuedKey && (
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+              <div className="font-semibold mb-1">New key (shown once)</div>
+              <code className="font-mono break-all text-emerald-200">{issuedKey}</code>
+              <div className="mt-2">
+                <Button size="sm" variant="outline" onClick={() => handleUseKey(issuedKey)}>
+                  Use this key in the dashboard
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {keys.length === 0 ? (
+              <p className="text-slate-500">No API keys yet.</p>
+            ) : (
+              keys.map((k) => (
+                <div
+                  key={k.id}
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/60 border border-slate-800"
+                >
+                  <div>
+                    <span className="text-slate-200 font-medium">{k.name}</span>
+                    <span className="text-slate-500 font-mono ml-2">{k.key_prefix}…</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={k.is_active ? "success" : "neutral"}>
+                      {k.is_active ? "active" : "revoked"}
+                    </Badge>
+                    {k.is_active && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => handleRevoke(k.id)}
+                        disabled={busy}
+                        icon={<Trash2 className="w-3.5 h-3.5" />}
+                      >
+                        Revoke
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+            <span className="text-slate-500">
+              Dashboard key:{" "}
+              <span className="font-mono text-slate-300">
+                {activeKey ? `${activeKey.slice(0, 10)}…` : "not set"}
+              </span>
+            </span>
+            {activeKey && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleUseKey(null)}
+                icon={<Power className="w-3.5 h-3.5" />}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

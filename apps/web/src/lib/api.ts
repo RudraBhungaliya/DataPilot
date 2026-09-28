@@ -149,11 +149,31 @@ export interface WorkflowStepsResponse {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
+/**
+ * API key handling. The key is stored in localStorage and sent as X-API-Key on
+ * every request, so the UI works whether or not AUTH_ENABLED is turned on.
+ */
+export function getApiKey(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem('datapilot_api_key');
+}
+
+export function setApiKey(key: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (key) window.localStorage.setItem('datapilot_api_key', key);
+  else window.localStorage.removeItem('datapilot_api_key');
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getApiKey();
+  return key ? { 'X-API-Key': key } : {};
+}
+
 export async function fetchHealth(): Promise<HealthData | null> {
   try {
     const res = await fetch(`${API_BASE}/health`, {
       cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     if (!res.ok) {
       return {
@@ -180,6 +200,7 @@ export async function fetchApiRoot(): Promise<ApiRootData | null> {
   try {
     const res = await fetch(`${API_BASE}/`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -194,6 +215,7 @@ export async function parseRequirement(prompt: string): Promise<RequirementParse
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({ prompt }),
     });
@@ -226,6 +248,7 @@ export async function planWorkflow(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({
         requirement,
@@ -256,6 +279,7 @@ export async function executeWorkflow(workflowId: string): Promise<ExecuteWorkfl
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
     });
 
@@ -279,6 +303,7 @@ export async function fetchWorkflowDefinition(workflowId: string): Promise<Workf
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -291,6 +316,7 @@ export async function fetchWorkflowSteps(workflowId: string): Promise<WorkflowSt
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}/steps`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -308,6 +334,7 @@ export async function createWorkflow(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({
         prompt,
@@ -327,6 +354,7 @@ export async function fetchWorkflows(): Promise<WorkflowRecord[]> {
   try {
     const res = await fetch(`${API_BASE}/workflows`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -402,6 +430,7 @@ export async function fetchSources(): Promise<SourceDefinition[]> {
   try {
     const res = await fetch(`${API_BASE}/sources`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -414,6 +443,7 @@ export async function fetchCollectionJobs(): Promise<CollectionJob[]> {
   try {
     const res = await fetch(`${API_BASE}/collection/jobs`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -426,7 +456,7 @@ export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
   try {
     const res = await fetch(
       `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/documents?limit=50`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: authHeaders() }
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -438,7 +468,7 @@ export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
 
 export async function fetchRecentDocuments(): Promise<RawDocument[]> {
   try {
-    const res = await fetch(`${API_BASE}/collection/documents?limit=50`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/collection/documents?limit=50`, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -452,7 +482,7 @@ export async function createCollectionJob(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ collection_request: collectionRequest }),
     });
     const data = await res.json();
@@ -468,7 +498,7 @@ export async function discoverJobSources(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/discover`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
@@ -483,7 +513,7 @@ export async function executeCollectionJob(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
@@ -496,6 +526,7 @@ export async function fetchCollectionJob(jobId: string): Promise<any> {
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -510,7 +541,7 @@ export async function resumeCollectionJob(jobId: string, skipSource: boolean = f
       `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume?skip_source=${skipSource}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
       }
     );
     const data = await res.json();
@@ -524,7 +555,7 @@ export async function resumeWorkflow(workflowId: string, skipSource: boolean = f
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume?skip_source=${skipSource}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) {
@@ -578,7 +609,7 @@ export interface DatasetRecord {
 
 export async function fetchDatasets(): Promise<DatasetSummary[]> {
   try {
-    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -588,7 +619,7 @@ export async function fetchDatasets(): Promise<DatasetSummary[]> {
 
 export async function fetchDataset(datasetId: string): Promise<DatasetSummary | null> {
   try {
-    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -620,7 +651,7 @@ export async function fetchDatasetRecords(
 
     const res = await fetch(
       `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?${params.toString()}`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: authHeaders() }
     );
     if (!res.ok) return { total: 0, count: 0, records: [] };
     const data = await res.json();
@@ -658,7 +689,7 @@ export async function fetchRecordEvidence(
   try {
     const res = await fetch(
       `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records/${encodeURIComponent(recordId)}/evidence`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: authHeaders() }
     );
     if (!res.ok) return null;
     return await res.json();
@@ -669,6 +700,113 @@ export async function fetchRecordEvidence(
 
 export function datasetExportUrl(datasetId: string, format: 'csv' | 'json' | 'jsonl'): string {
   return `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/export/${format}`;
+}
+
+// ============================================================================
+// Phase 7: Background jobs + API keys
+// ============================================================================
+
+export interface BackgroundJob {
+  id: string;
+  kind: string;
+  status: string;
+  payload?: Record<string, any>;
+  result?: Record<string, any> | null;
+  error?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export async function fetchJobs(limit: number = 50): Promise<BackgroundJob[]> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs?limit=${limit}`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchQueueStats(): Promise<{ depth: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/stats`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return { depth: 0 };
+    return await res.json();
+  } catch {
+    return { depth: 0 };
+  }
+}
+
+export async function executeWorkflowAsync(
+  workflowId: string
+): Promise<{ id: string; kind: string; status: string } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/execute-async`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  created_at?: string | null;
+  last_used_at?: string | null;
+}
+
+export async function fetchApiKeys(): Promise<ApiKeyRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createApiKey(
+  name: string
+): Promise<({ api_key: string } & ApiKeyRecord) | null> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function revokeApiKey(keyId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 
