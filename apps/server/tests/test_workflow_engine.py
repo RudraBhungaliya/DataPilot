@@ -339,6 +339,10 @@ def test_executor_registry_lookup_and_unknown():
 from app.workflows.registry import get_mock_registry
 from app.workflows.executors.discovery import SourceDiscoveryStepExecutor
 from app.workflows.executors.collection import CollectionStepExecutor
+from app.workflows.executors.pipeline import (
+    ExtractionStepExecutor,
+    BuildDatasetStepExecutor,
+)
 
 
 def test_default_registry_contains_all_step_types():
@@ -349,7 +353,9 @@ def test_default_registry_contains_all_step_types():
     # Phase 4 binds real discovery and collection executors
     assert isinstance(reg.get(StepType.DISCOVER_SOURCES), SourceDiscoveryStepExecutor)
     assert isinstance(reg.get(StepType.COLLECT_DATA), CollectionStepExecutor)
-    assert isinstance(reg.get(StepType.BUILD_DATASET), MockStepExecutor)
+    # Phase 5 binds real data-intelligence executors
+    assert isinstance(reg.get(StepType.EXTRACT_DATA), ExtractionStepExecutor)
+    assert isinstance(reg.get(StepType.BUILD_DATASET), BuildDatasetStepExecutor)
 
     # get_mock_registry binds mock executors for all step types
     mock_reg = get_mock_registry()

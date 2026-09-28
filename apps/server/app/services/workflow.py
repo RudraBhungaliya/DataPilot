@@ -144,6 +144,7 @@ class WorkflowService:
         executed_def = await self.engine.execute(
             workflow=workflow_def,
             on_step_update=on_step_update,
+            db=db,
         )
 
         # Final persistence

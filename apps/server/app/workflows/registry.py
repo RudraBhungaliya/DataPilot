@@ -48,6 +48,14 @@ class ExecutorRegistry:
 
 from app.workflows.executors.discovery import SourceDiscoveryStepExecutor
 from app.workflows.executors.collection import CollectionStepExecutor
+from app.workflows.executors.pipeline import (
+    ExtractionStepExecutor,
+    NormalizeStepExecutor,
+    ValidationStepExecutor,
+    DeduplicateStepExecutor,
+    BuildDatasetStepExecutor,
+    ExportStepExecutor,
+)
 
 
 def get_mock_registry() -> ExecutorRegistry:
@@ -79,5 +87,13 @@ def get_default_registry() -> ExecutorRegistry:
     # Wire Phase 4 real collection engine
     registry.register(StepType.DISCOVER_SOURCES, SourceDiscoveryStepExecutor())
     registry.register(StepType.COLLECT_DATA, CollectionStepExecutor())
+
+    # Wire Phase 5 real data intelligence pipeline
+    registry.register(StepType.EXTRACT_DATA, ExtractionStepExecutor())
+    registry.register(StepType.NORMALIZE_DATA, NormalizeStepExecutor())
+    registry.register(StepType.VALIDATE_DATA, ValidationStepExecutor())
+    registry.register(StepType.DEDUPLICATE_DATA, DeduplicateStepExecutor())
+    registry.register(StepType.BUILD_DATASET, BuildDatasetStepExecutor())
+    registry.register(StepType.EXPORT_DATA, ExportStepExecutor())
 
     return registry

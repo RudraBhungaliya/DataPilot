@@ -839,7 +839,7 @@ def test_api_collection_jobs_endpoints():
         content="<html>Raw test content</html>",
         status_code=200,
     )
-    with patch.object(CollectionManager, "execute_collection", return_value=CollectionResult(
+    with patch.object(CollectionManager, "execute_job", return_value=CollectionResult(
         job_id=job_id,
         request_id="colreq_api_test",
         status=JobStatus.COMPLETED,
@@ -892,7 +892,7 @@ async def test_workflow_engine_discovery_and_collection_step_execution():
         status_code=200,
     )
 
-    with patch.object(CollectionManager, "execute_collection", return_value=CollectionResult(
+    with patch.object(CollectionManager, "execute_job", return_value=CollectionResult(
         job_id="job_wf_test",
         request_id="colreq_wf",
         status=JobStatus.COMPLETED,
@@ -916,7 +916,7 @@ async def test_workflow_engine_discovery_and_collection_step_execution():
         assert step_2.output.get("status") == "COMPLETED"
         assert len(step_2.output.get("documents", [])) > 0
 
-        # Downstream steps remain mock (Phase 5)
+        # Downstream steps now run the real Phase 5 pipeline (no longer mocks)
         step_3 = [s for s in executed_wf.steps if s.type == StepType.EXTRACT_DATA][0]
         assert step_3.status == StepStatus.COMPLETED
-        assert step_3.output.get("is_mock") is True
+        assert step_3.output.get("is_mock") is not True

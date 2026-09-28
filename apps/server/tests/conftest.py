@@ -68,6 +68,12 @@ class MockAsyncSession:
     async def close(self):
         pass
 
+    async def get(self, model, pk):
+        obj = self.storage.get(pk)
+        if obj is not None and isinstance(obj, model):
+            return obj
+        return None
+
     async def execute(self, statement):
         target_id = None
         try:
@@ -79,10 +85,22 @@ class MockAsyncSession:
         except Exception:
             pass
 
+        entity = None
+        try:
+            descriptions = getattr(statement, "column_descriptions", None) or []
+            if descriptions:
+                entity = descriptions[0].get("entity")
+        except Exception:
+            entity = None
+
+        values = list(self.storage.values())
+        if entity is not None:
+            values = [v for v in values if isinstance(v, entity)]
+
         if target_id:
-            matched = [self.storage[target_id]] if target_id in self.storage else []
+            matched = [v for v in values if getattr(v, "id", None) == target_id]
         else:
-            matched = list(self.storage.values())
+            matched = values
         return _Result(matched)
 
 

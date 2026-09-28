@@ -21,6 +21,11 @@ class ExecutionContext(BaseModel):
         description="Outputs keyed by step ID from earlier dependencies in the DAG",
     )
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    db: Optional[Any] = Field(
+        default=None,
+        exclude=True,
+        description="Optional database session for executors that persist artifacts",
+    )
 
     def get_step_output(self, step_id: str) -> Optional[Any]:
         """Convenience method to retrieve output of a dependency step."""

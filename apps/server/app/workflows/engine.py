@@ -29,6 +29,7 @@ class WorkflowEngine:
         self,
         workflow: WorkflowDefinition,
         on_step_update: Optional[StepCallback] = None,
+        db: Optional[Any] = None,
     ) -> WorkflowDefinition:
         """
         Executes (or resumes) a workflow definition across its dependency graph.
@@ -38,6 +39,7 @@ class WorkflowEngine:
 
         :param workflow: The WorkflowDefinition to run
         :param on_step_update: Optional async callback invoked on step state transitions
+        :param db: Optional database session made available to executors via context
         :return: Updated WorkflowDefinition with step results and final status
         """
         # 1. Validate workflow structure and obtain topological execution order
@@ -60,6 +62,7 @@ class WorkflowEngine:
             workflow_id=workflow.workflow_id,
             input_requirement=workflow.input_requirement,
             metadata={"started_at": workflow.updated_at},
+            db=db,
         )
 
         # Re-hydrate outputs of steps that already completed (resume support)
