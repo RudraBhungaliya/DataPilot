@@ -22,20 +22,26 @@ class HTTPCollector(BaseCollector):
     Standard HTTP/HTTPS collector for normal public websites.
     """
 
-    CAPTCHA_SIGNALS = [
-        "cf-chl-bypass",
+    # Strong interstitial phrases that reliably indicate an anti-bot challenge page.
+    CAPTCHA_STRONG_SIGNALS = [
+        "cf-chl",
         "challenge-running",
-        "recaptcha",
-        "g-recaptcha",
-        "hcaptcha",
         "please verify you are a human",
-        "access denied - security check",
+        "verify you are human",
+        "just a moment",
+        "checking your browser",
         "attention required! | cloudflare",
+        "access denied - security check",
+        "security check to continue",
+        "enable javascript and cookies to continue",
         "robot or human?",
         "ddos-guard",
         "perimeterx",
-        "security check to continue",
+        "px-captcha",
+        "are you a robot",
     ]
+    # Weak widget markers that only count when paired with a challenge HTTP status.
+    CAPTCHA_WIDGET_SIGNALS = ["recaptcha", "g-recaptcha", "hcaptcha", "captcha"]
 
     def __init__(
         self,
@@ -59,22 +65,49 @@ class HTTPCollector(BaseCollector):
         )
         self.max_size_bytes = settings.DATAPILOT_MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 
-    def is_captcha_challenge(self, status_code: int, headers: httpx.Headers, body_text: str) -> bool:
+    def is_captcha_challenge(
+        self,
+        status_code: int,
+        headers: httpx.Headers,
+        body_text: str,
+        content_type: str = "",
+    ) -> bool:
         """
-        Determines whether the response represents an anti-bot or CAPTCHA challenge.
+        Determines whether a response is an anti-bot/CAPTCHA challenge page.
+
+        A page that merely *embeds* a CAPTCHA widget (e.g. a contact form or an invisible
+        reCAPTCHA v3 script) is NOT a challenge and must not be treated as one. Only
+        explicit WAF headers, strong interstitial phrases, or weak widget markers paired
+        with a challenge HTTP status qualify as a challenge.
         """
-        # Header indicators
+        # 1. Explicit WAF / challenge response headers
         if "cf-mitigated" in headers or "x-amzn-waf-action" in headers:
             return True
 
-        # Status 403 or 429 combined with Cloudflare/WAF or body clues
-        server = headers.get("server", "").lower()
-        if status_code in [403, 429] and ("cloudflare" in server or "akamai" in server):
+        server = (headers.get("server") or "").lower()
+        is_waf_server = any(
+            waf in server for waf in ("cloudflare", "akamai", "sucuri", "imperva")
+        )
+
+        # Only HTML/text bodies are scanned, and only the first 200 KB
+        ct = (content_type or "").lower()
+        body_is_scannable = (not ct) or ("html" in ct) or ("text" in ct)
+        if not (body_is_scannable and body_text):
+            return False
+
+        lower_body = body_text[:200_000].lower()
+
+        # 2. Strong interstitial phrases always indicate a challenge
+        if any(sig in lower_body for sig in self.CAPTCHA_STRONG_SIGNALS):
             return True
 
-        # Content keyword inspection
-        lower_body = body_text.lower()
-        return any(sig in lower_body for sig in self.CAPTCHA_SIGNALS)
+        # 3. Weak widget markers only count on a challenge status or WAF-fronted server
+        if (status_code in (401, 403, 429, 503) or is_waf_server) and any(
+            sig in lower_body for sig in self.CAPTCHA_WIDGET_SIGNALS
+        ):
+            return True
+
+        return False
 
     async def collect(
         self,
@@ -109,7 +142,8 @@ class HTTPCollector(BaseCollector):
 
                 # Check for CAPTCHA / bot challenge barrier
                 body_text = resp.text
-                if self.is_captcha_challenge(resp.status_code, resp.headers, body_text):
+                content_type = resp.headers.get("content-type", "")
+                if self.is_captcha_challenge(resp.status_code, resp.headers, body_text, content_type):
                     logger.warning(
                         f"CAPTCHA / Bot challenge detected at {target_url}. Policy forbids bypass."
                     )
@@ -119,7 +153,15 @@ class HTTPCollector(BaseCollector):
                         url=target_url,
                     )
 
-                # Distinguish 404 (non-retryable permanent failure) from transient errors
+                # Retryable transient failures: server errors and rate limiting
+                if resp.status_code >= 500 or resp.status_code == 429:
+                    raise httpx.HTTPStatusError(
+                        f"Transient HTTP error {resp.status_code}",
+                        request=req,
+                        response=resp,
+                    )
+
+                # 404 is a permanent, non-retryable failure
                 if resp.status_code == 404:
                     raise CollectorException(
                         "Resource not found (404)",
@@ -128,11 +170,13 @@ class HTTPCollector(BaseCollector):
                         status_code=404,
                     )
 
-                if resp.status_code >= 500:
-                    raise httpx.HTTPStatusError(
-                        f"Server Error {resp.status_code}",
-                        request=req,
-                        response=resp,
+                # Any other non-2xx (401, 403 non-CAPTCHA, 410, ...) is a permanent failure
+                if resp.status_code >= 400:
+                    raise CollectorException(
+                        f"HTTP {resp.status_code} response",
+                        source.source_id,
+                        target_url,
+                        status_code=resp.status_code,
                     )
 
                 return resp

@@ -51,6 +51,33 @@ class CollectionManager:
         self.cache = cache or DocumentCache()
         self.zyte_adapter = zyte_adapter or ZyteAdapter()
 
+    async def _enqueue_alternative_sources(
+        self,
+        source: SourceDefinition,
+        request: CollectionRequest,
+        sources_queue: List[SourceDefinition],
+        processed_source_ids: Set[str],
+        blocked_source_ids: Set[str],
+        alternative_sources_used: List[str],
+    ) -> None:
+        """Discovers replacement sources for a blocked/failed source and appends them to the queue."""
+        try:
+            alternatives = await self.discovery.discover_alternative_sources(
+                failed_source=source,
+                request=request,
+                exclude_source_ids=list(processed_source_ids | blocked_source_ids),
+            )
+            for alt in alternatives:
+                if alt.source_id not in processed_source_ids and alt not in sources_queue:
+                    sources_queue.append(alt)
+                    if alt.source_id not in alternative_sources_used:
+                        alternative_sources_used.append(alt.source_id)
+                    if alt.name not in alternative_sources_used:
+                        alternative_sources_used.append(alt.name)
+                    logger.info(f"Added alternative source to queue: {alt.name} ({alt.source_id})")
+        except Exception as alt_err:
+            logger.warning(f"Failed to find alternative sources: {alt_err}")
+
     async def execute_job(
         self,
         request: CollectionRequest,
@@ -72,6 +99,14 @@ class CollectionManager:
         start_time = time.monotonic()
         if not job_id:
             job_id = f"job_{request.request_id.replace('colreq_', '')}"
+
+        # Human-in-the-loop attempt tracking (carried across resumes via the checkpoint)
+        prior_attempts = 0
+        if checkpoint:
+            try:
+                prior_attempts = int(checkpoint.get("resume_attempt", 0) or 0)
+            except (TypeError, ValueError):
+                prior_attempts = 0
 
         logger.info(
             f"Starting CollectionJob '{job_id}' for entity '{request.entity}' "
@@ -153,10 +188,15 @@ class CollectionManager:
                     f"CAPTCHA / Bot challenge detected at {source.base_url} ({source.source_id})."
                 )
 
-                # Strict Human-in-the-Loop policy: Never bypass, never solve, never retry aggressively
-                if request.collection_strategy.human_action_on_captcha:
+                # Strict Human-in-the-Loop policy: Never bypass, never solve.
+                next_attempt = prior_attempts + 1
+                max_attempts = settings.DATAPILOT_MAX_HUMAN_ATTEMPTS
+                human_policy = request.collection_strategy.human_action_on_captcha
+
+                if human_policy and next_attempt <= max_attempts:
                     logger.info(
-                        f"Initiating human-in-the-loop handoff for job '{job_id}' on source '{source.name}'."
+                        f"Initiating human-in-the-loop handoff for job '{job_id}' on source "
+                        f"'{source.name}' (attempt {next_attempt}/{max_attempts})."
                     )
                     remaining_sources_list = [
                         s.model_dump(mode="json") for s in sources_queue[queue_index:]
@@ -171,6 +211,8 @@ class CollectionManager:
                         "current_step": "SOURCE_COLLECTION",
                         "current_page": 1,
                         "records_processed": len(documents),
+                        "resume_attempt": next_attempt,
+                        "max_human_attempts": max_attempts,
                         "collected_document_ids": [doc.document_id for doc in documents],
                         "collected_urls": list(collected_urls),
                         "last_successful_request": last_successful_url,
@@ -220,6 +262,12 @@ class CollectionManager:
                         human_action_reason="CAPTCHA_REQUIRED",
                     )
 
+                if human_policy:
+                    logger.warning(
+                        f"CAPTCHA on '{source.name}' unresolved after {max_attempts} human "
+                        f"attempt(s). Marking source unavailable and continuing."
+                    )
+
                 # Fallback path if human action is explicitly disabled
                 zyte_success = False
                 is_zyte_ready = self.zyte_adapter.is_configured() if callable(self.zyte_adapter.is_configured) else bool(self.zyte_adapter.is_configured)
@@ -262,26 +310,18 @@ class CollectionManager:
                             "zyte_attempted": is_zyte_ready,
                         })
 
-                    # Discover Alternative Sources
+                    # Discover alternative sources to replace the blocked source
                     logger.info(
                         f"Discovering alternative sources to substitute blocked source '{source.name}'..."
                     )
-                    try:
-                        alternatives = await self.discovery.discover_alternative_sources(
-                            source,
-                            request,
-                            exclude_source_ids=list(processed_source_ids | blocked_source_ids),
-                        )
-                        for alt in alternatives:
-                            if alt.source_id not in processed_source_ids and alt not in sources_queue:
-                                sources_queue.append(alt)
-                                if alt.source_id not in alternative_sources_used:
-                                    alternative_sources_used.append(alt.source_id)
-                                if alt.name not in alternative_sources_used:
-                                    alternative_sources_used.append(alt.name)
-                                logger.info(f"Added alternative source to queue: {alt.name} ({alt.source_id})")
-                    except Exception as alt_err:
-                        logger.warning(f"Failed to find alternative sources: {alt_err}")
+                    await self._enqueue_alternative_sources(
+                        source,
+                        request,
+                        sources_queue,
+                        processed_source_ids,
+                        blocked_source_ids,
+                        alternative_sources_used,
+                    )
 
 
             except CollectorException as ce:

@@ -4,7 +4,7 @@ Orchestrates discovery providers to find and rank eligible sources for a Collect
 Supports discovering alternative sources when a primary source encounters an access barrier.
 """
 
-from typing import List, Optional, Set, Any
+from typing import List, Optional, Set
 from app.collection.schemas import CollectionRequest, SourceDefinition
 from app.collection.discovery.base import BaseDiscoveryProvider
 from app.collection.discovery.registry import SourceRegistry
@@ -85,28 +85,25 @@ class SourceDiscovery:
 
     async def discover_alternative_sources(
         self,
-        request: Optional[Any] = None,
-        exclude_source_ids: Optional[Any] = None,
-        failed_source: Optional[Any] = None,
-        **kwargs,
+        failed_source: Optional[SourceDefinition] = None,
+        request: Optional[CollectionRequest] = None,
+        exclude_source_ids: Optional[List[str]] = None,
     ) -> List[SourceDefinition]:
         """
-        Discovers fallback/alternative sources excluding specific failed or blocked source IDs.
-        Supports discover_alternative_sources(failed_src, req) or discover_alternative_sources(req, exclude_ids).
-        """
-        if isinstance(request, SourceDefinition):
-            actual_failed = request
-            actual_req = exclude_source_ids if isinstance(exclude_source_ids, CollectionRequest) else kwargs.get("request")
-            exclude_ids = [actual_failed.source_id]
-        elif isinstance(request, CollectionRequest):
-            actual_req = request
-            exclude_ids = list(exclude_source_ids) if exclude_source_ids else []
-        else:
-            actual_req = kwargs.get("request")
-            exclude_ids = list(exclude_source_ids) if exclude_source_ids else []
+        Discovers fallback/alternative sources excluding the failed source and any
+        already-processed/blocked source IDs.
 
-        if not actual_req:
-            actual_req = CollectionRequest(objective="Discover alternative sources", entity="startup")
+        :param failed_source: The source that encountered an access barrier or failure.
+        :param request: The originating CollectionRequest used to match replacements.
+        :param exclude_source_ids: Additional source IDs that must not be returned.
+        """
+        exclude_ids = list(exclude_source_ids or [])
+        if failed_source is not None and failed_source.source_id not in exclude_ids:
+            exclude_ids.append(failed_source.source_id)
+
+        actual_req = request or CollectionRequest(
+            objective="Discover alternative sources", entity="startup"
+        )
 
         exclude_set = set(exclude_ids)
         all_eligible = await self.discover_sources(actual_req)

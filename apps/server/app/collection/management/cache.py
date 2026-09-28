@@ -7,6 +7,7 @@ Designed with in-memory local caching and future Redis compatibility.
 import time
 from typing import Optional, Dict, Any, Tuple
 from app.collection.schemas import RawDocument
+from app.core.config import settings
 from app.core.logger import logger
 
 
@@ -15,10 +16,30 @@ class DocumentCache:
     Caching layer checking canonical URL and content freshness.
     """
 
-    def __init__(self, default_ttl_seconds: int = 3600, ttl_seconds: Optional[int] = None):
+    def __init__(
+        self,
+        default_ttl_seconds: int = 3600,
+        ttl_seconds: Optional[int] = None,
+        max_entries: Optional[int] = None,
+    ):
         self.default_ttl = ttl_seconds if ttl_seconds is not None else default_ttl_seconds
+        self.max_entries = max_entries if max_entries is not None else settings.DATAPILOT_CACHE_MAX_ENTRIES
         # In-memory store: key -> (RawDocument, expiry_timestamp)
         self._store: Dict[str, Tuple[RawDocument, float]] = {}
+
+    def _evict(self) -> None:
+        """Removes expired entries and enforces the maximum entry bound."""
+        now = time.time()
+        for key in [k for k, (_, exp) in self._store.items() if exp <= now]:
+            self._store.pop(key, None)
+
+        overflow = len(self._store) - self.max_entries
+        if overflow > 0:
+            # Drop the entries expiring soonest first
+            soonest = sorted(self._store.items(), key=lambda kv: kv[1][1])[:overflow]
+            for key, _ in soonest:
+                self._store.pop(key, None)
+
 
     def _get_doc(self, arg1: str, arg2: Optional[str] = None) -> Optional[RawDocument]:
         key = f"{arg1}:{arg2.strip().lower()}" if arg2 else arg1.strip().lower()
@@ -50,9 +71,12 @@ class DocumentCache:
 
         if doc is not None:
             expiry = time.time() + ttl
-            self._store[key] = (doc, expiry)
-            if doc.canonical_url:
-                self._store[doc.canonical_url.strip().lower()] = (doc, expiry)
+            # Index under the requested key plus the requested and canonical URLs so that
+            # lookups by base_url or canonical_url both hit (they often differ after redirects).
+            for candidate in (key, doc.url.strip().lower() if doc.url else "", doc.canonical_url.strip().lower() if doc.canonical_url else ""):
+                if candidate:
+                    self._store[candidate] = (doc, expiry)
+            self._evict()
             logger.debug(f"Cached document under key: {key} (TTL: {ttl}s)")
 
     async def get(self, arg1: str, arg2: Optional[str] = None) -> Optional[RawDocument]:

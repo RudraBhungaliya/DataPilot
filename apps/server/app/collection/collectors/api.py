@@ -90,9 +90,9 @@ class APICollector(BaseCollector):
         current_url = target_url
 
         while current_page < max_pages and len(collected_docs) < max_docs:
-            # Prepare page parameters
+            # Prepare page parameters. Rely solely on the strategy handler so we never
+            # send conflicting keys (e.g. both `page` and `offset`).
             page_params = base_params.copy()
-            page_params[page_param] = current_page + 1
 
             pag_params = PaginationHandler.get_next_request_params(
                 strategy=pagination_type,
@@ -100,6 +100,9 @@ class APICollector(BaseCollector):
                 page_size=page_size,
                 config=pag_cfg or source.metadata,
             )
+            if not pag_params:
+                # Fallback for unknown strategies -> plain page-number pagination
+                pag_params = {page_param: current_page + 1}
             page_params.update(pag_params)
 
             async def _fetch():

@@ -106,11 +106,25 @@ def test_captcha_detection_identifies_challenges():
         body_text="<html><title>Attention Required! | Cloudflare</title><body>Please verify you are a human</body></html>",
     ) is True
 
-    # Recaptcha / hCaptcha in body
+    # reCAPTCHA widget embedded in an otherwise normal page is NOT a challenge
     assert collector.is_captcha_challenge(
         status_code=200,
         headers=httpx.Headers({}),
-        body_text="<div id='g-recaptcha'></div>",
+        body_text="<html><body>Contact us<form><div id='g-recaptcha'></div></form></body></html>",
+    ) is False
+
+    # Invisible reCAPTCHA v3 script (200 OK) is NOT a challenge on its own
+    assert collector.is_captcha_challenge(
+        status_code=200,
+        headers=httpx.Headers({}),
+        body_text="<script src='https://www.google.com/recaptcha/api.js'></script>",
+    ) is False
+
+    # A real challenge interstitial IS detected
+    assert collector.is_captcha_challenge(
+        status_code=403,
+        headers=httpx.Headers({"server": "cloudflare"}),
+        body_text="<html><title>Just a moment...</title><body>Checking your browser before accessing.</body></html>",
     ) is True
 
     # Normal response is not flagged

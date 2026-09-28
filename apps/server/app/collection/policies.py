@@ -7,6 +7,7 @@ Ensures zero CAPTCHA-bypassing, respects robots.txt, allowed schemes, and source
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 from typing import Dict, Optional, Tuple
+import ipaddress
 from app.collection.schemas import SourceDefinition, SourceStatus
 from app.core.logger import logger
 from app.core.config import settings
@@ -27,13 +28,38 @@ class SourceAccessPolicy:
 
     ALLOWED_SCHEMES = {"http", "https"}
 
+    # Hostnames that must never be fetched (cloud metadata endpoints, internal names)
+    BLOCKED_HOSTNAMES = {
+        "localhost",
+        "metadata",
+        "metadata.google.internal",
+        "instance-data",
+    }
+
     def __init__(self):
-        # Cache for parsed robots.txt: domain -> RobotFileParser
+        # Cache for parsed robots.txt: domain -> Optional[RobotFileParser]
         self._robots_cache: Dict[str, Optional[RobotFileParser]] = {}
+
+    @staticmethod
+    def _is_blocked_ip(host: str) -> bool:
+        """Returns True when `host` is a private, loopback, link-local, or reserved IP."""
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
 
     def validate_url(self, url: str) -> Tuple[bool, str]:
         """
         Validates URL formatting, scheme, and presence of netloc.
+        Blocks loopback, private, link-local and reserved hosts (SSRF protection).
         Returns (is_valid, error_reason).
         """
         s = url.strip()
@@ -45,12 +71,16 @@ class SourceAccessPolicy:
             return False, "Missing URL scheme (http/https)"
         if parsed.scheme.lower() not in self.ALLOWED_SCHEMES:
             return False, f"Unsupported scheme: '{parsed.scheme}'. Must be http or https."
-        if not parsed.netloc:
+        if not parsed.hostname:
             return False, "Missing host domain in URL"
 
-        host = parsed.netloc.split(":")[0].lower()
-        if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
+        host = (parsed.hostname or "").lower()
+
+        if host in self.BLOCKED_HOSTNAMES or host.endswith(".local"):
             return False, f"Restricted host: {host}"
+
+        if self._is_blocked_ip(host):
+            return False, f"Restricted private/internal IP address: {host}"
 
         return True, ""
 

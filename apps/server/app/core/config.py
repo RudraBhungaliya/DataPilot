@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     DATAPILOT_REQUESTS_PER_DOMAIN: int = 5
     DATAPILOT_MIN_REQUEST_INTERVAL: float = 0.5  # seconds between requests to same domain
     DATAPILOT_MAX_DOCUMENT_SIZE_MB: int = 10
+    DATAPILOT_MAX_HUMAN_ATTEMPTS: int = 3  # max human-in-the-loop CAPTCHA retries before blocking a source
+    DATAPILOT_CACHE_MAX_ENTRIES: int = 1000  # in-memory document cache bound
+    DATAPILOT_MAX_IN_MEMORY_JOBS: int = 200  # bound for in-memory collection job fallback store
     ZYTE_API_KEY: Union[str, None] = None
     ZYTE_API_URL: str = "https://api.zyte.com/v1/extract"
 

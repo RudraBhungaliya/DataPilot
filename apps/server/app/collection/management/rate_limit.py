@@ -31,9 +31,21 @@ class DomainRateLimiter:
 
     async def acquire(self) -> None:
         """
-        Blocks until rate limits and interval constraints are satisfied.
+        Acquires a concurrency slot and enforces rate limits before returning.
+        Callers MUST call `release()` when finished (or use `acquire_context`).
         """
         await self.semaphore.acquire()
+        try:
+            await self.wait()
+        except BaseException:
+            self.semaphore.release()
+            raise
+
+    async def wait(self) -> None:
+        """
+        Enforces the sliding-window quota and minimum interval without holding
+        a concurrency slot. Safe to call for pure rate limiting.
+        """
         async with self._lock:
             now = time.monotonic()
 
@@ -99,10 +111,12 @@ class RateLimiter:
         return self._limiters[dom]
 
     async def acquire(self, domain: str, config: Optional[RateLimitConfig] = None) -> None:
-        """Direct acquire method for manual rate limiting."""
+        """
+        Applies rate limiting for a domain WITHOUT holding a concurrency slot.
+        Use `acquire_context(...)` when concurrency must also be bounded.
+        """
         limiter = await self.get_limiter(domain, config)
-        await limiter.acquire()
-        limiter.release()
+        await limiter.wait()
 
     def acquire_context(self, domain: str, config: Optional[RateLimitConfig] = None):
         """

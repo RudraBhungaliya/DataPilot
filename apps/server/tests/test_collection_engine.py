@@ -537,7 +537,7 @@ async def test_captcha_zyte_unavailable_alternative_source_discovery():
         ]
 
     # Discovery returns source B when source A fails
-    async def mock_discover_alt(failed_src, request=None, **kwargs):
+    async def mock_discover_alt(failed_source=None, request=None, exclude_source_ids=None, **kwargs):
         return [source_b_alt]
 
     with patch.object(manager.http_collector, "collect", side_effect=mock_http_collect):
@@ -598,7 +598,7 @@ async def test_captcha_zyte_fails_alternative_source_collected():
     async def mock_zyte_collect(src, *args, **kwargs):
         raise CollectorError("Zyte API timeout on protected domain", source_id=src.id)
 
-    async def mock_discover_alt(failed_src, request=None, **kwargs):
+    async def mock_discover_alt(failed_source=None, request=None, exclude_source_ids=None, **kwargs):
         return [source_c_alt]
 
     with patch.object(manager.http_collector, "collect", side_effect=mock_http_collect):
