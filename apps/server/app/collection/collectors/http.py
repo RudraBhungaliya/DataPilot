@@ -125,6 +125,7 @@ class HTTPCollector(BaseCollector):
         Collects raw document from source base URL or configured endpoints.
         """
         target_url = source.base_url
+        await self.policy.ensure_robots(target_url)
         self.policy.check_all(target_url, source)
 
         domain = source.domain or "default"

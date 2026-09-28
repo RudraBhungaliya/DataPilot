@@ -8,5 +8,11 @@ from app.models.collection_job import CollectionJob
 from app.models.document import Document
 from app.models.extracted_record import ExtractedRecord
 from app.models.dataset import Dataset
+from app.models.api_key import ApiKey
+from app.models.background_job import BackgroundJob
+from app.models.scheduled_task import ScheduledTask
 
-__all__ = ["Base", "Workflow", "Source", "CollectionJob", "Document", "ExtractedRecord", "Dataset"]
+__all__ = [
+    "Base", "Workflow", "Source", "CollectionJob", "Document",
+    "ExtractedRecord", "Dataset", "ApiKey", "BackgroundJob", "ScheduledTask",
+]

@@ -52,6 +52,7 @@ export interface StructuredRequirement {
   source_preferences: string[];
   output_format: 'table' | 'json' | 'csv';
   confidence_score?: number;
+  assumptions?: string[];
   is_ambiguous?: boolean;
   clarification_needed?: string | null;
 }
@@ -148,11 +149,31 @@ export interface WorkflowStepsResponse {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
+/**
+ * API key handling. The key is stored in localStorage and sent as X-API-Key on
+ * every request, so the UI works whether or not AUTH_ENABLED is turned on.
+ */
+export function getApiKey(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem('datapilot_api_key');
+}
+
+export function setApiKey(key: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (key) window.localStorage.setItem('datapilot_api_key', key);
+  else window.localStorage.removeItem('datapilot_api_key');
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getApiKey();
+  return key ? { 'X-API-Key': key } : {};
+}
+
 export async function fetchHealth(): Promise<HealthData | null> {
   try {
     const res = await fetch(`${API_BASE}/health`, {
       cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     if (!res.ok) {
       return {
@@ -179,6 +200,7 @@ export async function fetchApiRoot(): Promise<ApiRootData | null> {
   try {
     const res = await fetch(`${API_BASE}/`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -193,6 +215,7 @@ export async function parseRequirement(prompt: string): Promise<RequirementParse
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({ prompt }),
     });
@@ -225,6 +248,7 @@ export async function planWorkflow(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({
         requirement,
@@ -255,6 +279,7 @@ export async function executeWorkflow(workflowId: string): Promise<ExecuteWorkfl
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
     });
 
@@ -278,6 +303,7 @@ export async function fetchWorkflowDefinition(workflowId: string): Promise<Workf
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -290,6 +316,7 @@ export async function fetchWorkflowSteps(workflowId: string): Promise<WorkflowSt
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}/steps`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -307,6 +334,7 @@ export async function createWorkflow(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
       },
       body: JSON.stringify({
         prompt,
@@ -326,6 +354,7 @@ export async function fetchWorkflows(): Promise<WorkflowRecord[]> {
   try {
     const res = await fetch(`${API_BASE}/workflows`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -401,6 +430,7 @@ export async function fetchSources(): Promise<SourceDefinition[]> {
   try {
     const res = await fetch(`${API_BASE}/sources`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -413,6 +443,7 @@ export async function fetchCollectionJobs(): Promise<CollectionJob[]> {
   try {
     const res = await fetch(`${API_BASE}/collection/jobs`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -425,11 +456,21 @@ export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
   try {
     const res = await fetch(
       `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/documents?limit=50`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: authHeaders() }
     );
     if (!res.ok) return [];
     const data = await res.json();
     return data.documents ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchRecentDocuments(): Promise<RawDocument[]> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/documents?limit=50`, { cache: 'no-store', headers: authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
   } catch {
     return [];
   }
@@ -441,7 +482,7 @@ export async function createCollectionJob(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ collection_request: collectionRequest }),
     });
     const data = await res.json();
@@ -457,7 +498,7 @@ export async function discoverJobSources(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/discover`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
@@ -472,7 +513,7 @@ export async function executeCollectionJob(
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
@@ -485,6 +526,7 @@ export async function fetchCollectionJob(jobId: string): Promise<any> {
   try {
     const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}`, {
       cache: 'no-store',
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -493,12 +535,15 @@ export async function fetchCollectionJob(jobId: string): Promise<any> {
   }
 }
 
-export async function resumeCollectionJob(jobId: string): Promise<any> {
+export async function resumeCollectionJob(jobId: string, skipSource: boolean = false): Promise<any> {
   try {
-    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const res = await fetch(
+      `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume?skip_source=${skipSource}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      }
+    );
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
   } catch (err: any) {
@@ -506,11 +551,11 @@ export async function resumeCollectionJob(jobId: string): Promise<any> {
   }
 }
 
-export async function resumeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+export async function resumeWorkflow(workflowId: string, skipSource: boolean = false): Promise<ExecuteWorkflowResponse> {
   try {
-    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume`, {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume?skip_source=${skipSource}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) {
@@ -535,6 +580,8 @@ export interface DatasetSummary {
   schema_fields: string[];
   output_format: string;
   status: string;
+  version: number;
+  is_latest: boolean;
   record_count: number;
   valid_count: number;
   duplicate_count: number;
@@ -554,13 +601,15 @@ export interface DatasetRecord {
   confidence: number;
   is_valid: boolean;
   validation_errors: string[];
+  missing_fields: string[];
+  completeness: number;
   dedupe_key?: string | null;
   is_duplicate: boolean;
 }
 
 export async function fetchDatasets(): Promise<DatasetSummary[]> {
   try {
-    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -570,7 +619,7 @@ export async function fetchDatasets(): Promise<DatasetSummary[]> {
 
 export async function fetchDataset(datasetId: string): Promise<DatasetSummary | null> {
   try {
-    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -580,24 +629,301 @@ export async function fetchDataset(datasetId: string): Promise<DatasetSummary | 
 
 export async function fetchDatasetRecords(
   datasetId: string,
-  limit: number = 50,
-  offset: number = 0
-): Promise<{ total: number; records: DatasetRecord[] }> {
+  opts: {
+    q?: string;
+    field?: string;
+    value?: string;
+    sort?: string;
+    order?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ total: number; count: number; records: DatasetRecord[] }> {
   try {
+    const params = new URLSearchParams();
+    if (opts.q) params.set('q', opts.q);
+    if (opts.field) params.set('field', opts.field);
+    if (opts.value !== undefined) params.set('value', opts.value);
+    if (opts.sort) params.set('sort', opts.sort);
+    params.set('order', opts.order ?? 'asc');
+    params.set('limit', String(opts.limit ?? 50));
+    params.set('offset', String(opts.offset ?? 0));
+
     const res = await fetch(
-      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?limit=${limit}&offset=${offset}`,
-      { cache: 'no-store' }
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?${params.toString()}`,
+      { cache: 'no-store', headers: authHeaders() }
     );
-    if (!res.ok) return { total: 0, records: [] };
+    if (!res.ok) return { total: 0, count: 0, records: [] };
     const data = await res.json();
-    return { total: data.total ?? 0, records: data.records ?? [] };
+    return { total: data.total ?? 0, count: data.count ?? 0, records: data.records ?? [] };
   } catch {
-    return { total: 0, records: [] };
+    return { total: 0, count: 0, records: [] };
   }
 }
 
-export function datasetExportUrl(datasetId: string, format: 'csv' | 'json'): string {
+export interface EvidenceItem {
+  source: string;
+  source_type: string;
+  reference: string;
+  excerpt?: string | null;
+  verification_status: string;
+}
+
+export interface RecordEvidence {
+  record_id: string;
+  entity: string;
+  data: Record<string, any>;
+  extraction_method: string;
+  confidence: number;
+  completeness: number;
+  missing_fields: string[];
+  evidence: EvidenceItem[];
+  document?: Record<string, any> | null;
+  source?: Record<string, any> | null;
+}
+
+export async function fetchRecordEvidence(
+  datasetId: string,
+  recordId: string
+): Promise<RecordEvidence | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records/${encodeURIComponent(recordId)}/evidence`,
+      { cache: 'no-store', headers: authHeaders() }
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export function datasetExportUrl(datasetId: string, format: 'csv' | 'json' | 'jsonl'): string {
   return `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/export/${format}`;
+}
+
+// ============================================================================
+// Phase 7: Background jobs + API keys
+// ============================================================================
+
+export interface BackgroundJob {
+  id: string;
+  kind: string;
+  status: string;
+  payload?: Record<string, any>;
+  result?: Record<string, any> | null;
+  error?: string | null;
+  progress?: number;
+  cancel_requested?: boolean;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export async function fetchJobs(limit: number = 50): Promise<BackgroundJob[]> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs?limit=${limit}`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchQueueStats(): Promise<{ depth: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/stats`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return { depth: 0 };
+    return await res.json();
+  } catch {
+    return { depth: 0 };
+  }
+}
+
+export async function executeWorkflowAsync(
+  workflowId: string
+): Promise<{ id: string; kind: string; status: string } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/execute-async`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  created_at?: string | null;
+  last_used_at?: string | null;
+}
+
+export async function fetchApiKeys(): Promise<ApiKeyRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys`, {
+      cache: 'no-store',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createApiKey(
+  name: string
+): Promise<({ api_key: string } & ApiKeyRecord) | null> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function revokeApiKey(keyId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/keys/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grounding (data availability) + job controls + schedules
+// ---------------------------------------------------------------------------
+
+export interface FieldAvailability {
+  field: string;
+  status: string;
+  reason: string;
+  sources: string[];
+}
+
+export interface AvailabilityResponse {
+  entity: string;
+  sources_discovered: number;
+  obtainable: string[];
+  unknown: string[];
+  availability: FieldAvailability[];
+}
+
+export async function checkAvailability(params: {
+  entity: string;
+  required_fields: string[];
+  source_preferences?: string[];
+  constraints?: Record<string, any>;
+}): Promise<AvailabilityResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/availability`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function retryJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/retry`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export interface ScheduleRecord {
+  id: string;
+  name: string;
+  kind: string;
+  target_id: string;
+  interval_seconds: number;
+  enabled: boolean;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at?: string | null;
+}
+
+export async function fetchSchedules(): Promise<ScheduleRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules`, { cache: 'no-store', headers: authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createSchedule(params: {
+  name: string;
+  kind: string;
+  target_id: string;
+  interval_seconds: number;
+}): Promise<ScheduleRecord | null> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteSchedule(scheduleId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules/${encodeURIComponent(scheduleId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 

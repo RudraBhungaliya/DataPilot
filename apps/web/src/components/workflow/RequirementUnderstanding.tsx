@@ -17,6 +17,7 @@ import {
   HelpCircle,
   ChevronRight,
   ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -25,9 +26,11 @@ import {
   parseRequirement,
   createWorkflow,
   planWorkflow,
+  checkAvailability,
   StructuredRequirement,
   RequirementParseResponse,
   WorkflowDefinition,
+  AvailabilityResponse,
 } from "@/lib/api";
 import { WorkflowEngineView } from "./WorkflowEngineView";
 
@@ -66,6 +69,8 @@ export function RequirementUnderstanding() {
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<AvailabilityResponse | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   const handleAnalyze = async (textToParse?: string) => {
     const text = (textToParse !== undefined ? textToParse : prompt).trim();
@@ -84,6 +89,17 @@ export function RequirementUnderstanding() {
       setResult(response);
       if (!response.success && response.error) {
         setErrorMessage(response.error);
+      }
+      if (response.success && response.requirement) {
+        setAvailability(null);
+        setCheckingAvailability(true);
+        checkAvailability({
+          entity: response.requirement.entity,
+          required_fields: response.requirement.required_fields || [],
+          source_preferences: response.requirement.source_preferences || [],
+        })
+          .then(setAvailability)
+          .finally(() => setCheckingAvailability(false));
       }
     } catch (err: any) {
       setErrorMessage("Unable to understand this requirement. Please try again.");
@@ -249,22 +265,66 @@ export function RequirementUnderstanding() {
         </div>
       )}
 
-      {/* Ambiguous Requirement State */}
-      {requirement?.is_ambiguous && !loading && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-amber-300">
-          <HelpCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" />
+      {/* Assumptions (non-blocking - DataPilot never asks questions) */}
+      {requirement && !loading && (requirement.assumptions?.length ?? 0) > 0 && (
+        <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-start gap-3 text-sky-200">
+          <HelpCircle className="w-5 h-5 shrink-0 mt-0.5 text-sky-400" />
           <div className="text-xs sm:text-sm space-y-1">
-            <span className="font-semibold block">Clarification Needed</span>
-            <p className="text-slate-300">
-              {requirement.clarification_needed ||
-                "Your requirement is somewhat ambiguous. Please provide specific entity types, attributes, or locations."}
-            </p>
+            <span className="font-semibold block">Assumptions made</span>
+            <ul className="list-disc list-inside text-slate-300 space-y-0.5">
+              {requirement.assumptions!.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
 
-      {/* Structured Result Display */}
-      {requirement && !requirement.is_ambiguous && !loading && (
+      {/* Data availability (grounding) */}
+      {requirement && !loading && (checkingAvailability || availability) && (
+        <Card className="border-slate-800 bg-slate-900/40">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Data Availability
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono">
+                {availability ? `${availability.sources_discovered} sources` : "checking..."}
+              </span>
+            </div>
+            {checkingAvailability && !availability ? (
+              <p className="text-xs text-slate-400">
+                Checking which fields the discovered sources can provide...
+              </p>
+            ) : availability ? (
+              <div className="flex flex-wrap gap-1.5">
+                {availability.availability.map((a) => (
+                  <span
+                    key={a.field}
+                    title={a.reason}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono border ${
+                      a.status === "obtainable"
+                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                        : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                    }`}
+                  >
+                    {a.field}: {a.status}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {availability && availability.unknown.length > 0 && (
+              <p className="text-[11px] text-amber-300">
+                {availability.unknown.length} field(s) no source declares ({availability.unknown.join(", ")}).
+                An enrichment step will attempt to fill them.
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Structured Result Display (always shown - never blocked on clarification) */}
+      {requirement && !loading && (
         <div className="space-y-4">
           {/* Status Header Banner */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">

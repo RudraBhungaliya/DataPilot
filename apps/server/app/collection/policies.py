@@ -36,9 +36,10 @@ class SourceAccessPolicy:
         "instance-data",
     }
 
-    def __init__(self):
+    def __init__(self, robots_enforced: Optional[bool] = None):
         # Cache for parsed robots.txt: domain -> Optional[RobotFileParser]
         self._robots_cache: Dict[str, Optional[RobotFileParser]] = {}
+        self.robots_enforced = settings.DATAPILOT_ROBOTS_ENFORCED if robots_enforced is None else robots_enforced
 
     @staticmethod
     def _is_blocked_ip(host: str) -> bool:
@@ -107,8 +108,14 @@ class SourceAccessPolicy:
     def is_robots_allowed(self, url: str, user_agent: Optional[str] = None) -> bool:
         """
         Checks if robots.txt allows accessing this URL.
-        Defaults to True if robots.txt cannot be parsed or is unavailable.
+
+        When enforcement is disabled this is a no-op. When enabled, it consults
+        the cached robots rules for the domain; if robots.txt has not been
+        fetched the request is allowed (fail-open) until `ensure_robots` loads it.
         """
+        if not self.robots_enforced:
+            return True
+
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
         ua = user_agent or settings.DATAPILOT_HTTP_USER_AGENT
@@ -122,9 +129,36 @@ class SourceAccessPolicy:
             except Exception:
                 return True
 
-        # For MVP resilience, non-blocking check
-        # Real HTTP collector will populate or verify cache
+        # Not yet fetched -> allow; ensure_robots() will populate the cache first.
         return True
+
+    async def ensure_robots(self, url: str, user_agent: Optional[str] = None, timeout: float = 2.0) -> None:
+        """Fetches and caches robots.txt for the URL's domain (idempotent)."""
+        if not self.robots_enforced:
+            return
+
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if not domain or domain in self._robots_cache:
+            return
+
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        ua = user_agent or settings.DATAPILOT_HTTP_USER_AGENT
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(robots_url, headers={"User-Agent": ua})
+                if resp.status_code == 200:
+                    parser = RobotFileParser()
+                    parser.parse(resp.text.splitlines())
+                    self._robots_cache[domain] = parser
+                else:
+                    # No robots.txt (404/etc.) -> treat as allow-all
+                    self._robots_cache[domain] = None
+        except Exception as e:
+            logger.debug(f"robots.txt fetch failed for {domain} (allowing): {e}")
+            self._robots_cache[domain] = None
 
     def set_robots_rules(self, domain: str, robots_txt_content: str) -> None:
         """

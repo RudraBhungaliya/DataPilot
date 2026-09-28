@@ -110,9 +110,34 @@ class ExtractionStepExecutor(BaseStepExecutor):
             return StepResult(success=False, error=f"Extraction failed: {str(e)}", metadata={"is_mock": False})
 
 
+class EnrichmentStepExecutor(BaseStepExecutor):
+    """ENRICH_DATA: second-pass extraction to fill fields the first pass missed."""
+
+    async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
+        req = context.input_requirement
+        required_fields = step.config.get("required_fields") or _req(req, "required_fields", []) or []
+        try:
+            stats = await get_data_service().enrich(
+                workflow_id=context.workflow_id,
+                required_fields=required_fields,
+                db=context.db,
+            )
+            return StepResult(
+                success=True,
+                output={
+                    "is_mock": False,
+                    "records_evaluated": stats.records_evaluated,
+                    "records_enriched": stats.records_enriched,
+                },
+                metadata={"is_mock": False, "records_enriched": stats.records_enriched},
+            )
+        except Exception as e:
+            logger.error(f"EnrichmentStepExecutor failed: {e}", exc_info=True)
+            return StepResult(success=False, error=f"Enrichment failed: {str(e)}", metadata={"is_mock": False})
+
+
 class NormalizeStepExecutor(BaseStepExecutor):
     """NORMALIZE_DATA: standardize keys/values."""
-
     async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
         try:
             stats = await get_data_service().normalize(context.workflow_id, db=context.db)
@@ -137,12 +162,14 @@ class ValidationStepExecutor(BaseStepExecutor):
         req = context.input_requirement
         required_fields = step.config.get("required_fields") or _req(req, "required_fields", []) or []
         filters = step.config.get("filters") or _filters_as_dicts(req)
+        strict = bool(step.config.get("strict", False))
 
         try:
             stats = await get_data_service().validate(
                 workflow_id=context.workflow_id,
                 required_fields=required_fields,
                 filters=filters,
+                strict=strict,
                 db=context.db,
             )
             return StepResult(
@@ -153,8 +180,11 @@ class ValidationStepExecutor(BaseStepExecutor):
                     "records_valid": stats.records_valid,
                     "records_invalid": stats.records_invalid,
                     "rules_evaluated": len(required_fields) + len(filters),
+                    "strict": strict,
+                    "mean_completeness": stats.mean_completeness,
+                    "missing_counts": stats.missing_counts,
                 },
-                metadata={"is_mock": False},
+                metadata={"is_mock": False, "records_valid": stats.records_valid},
             )
         except Exception as e:
             logger.error(f"ValidationStepExecutor failed: {e}", exc_info=True)
@@ -218,6 +248,8 @@ class BuildDatasetStepExecutor(BaseStepExecutor):
                     "record_count": dataset.record_count,
                     "schema_fields": schema_fields,
                     "status": dataset.status,
+                    "field_coverage": (dataset.metadata_ or {}).get("field_coverage", {}),
+                    "mean_completeness": (dataset.metadata_ or {}).get("mean_completeness", 0.0),
                 },
                 metadata={"is_mock": False, "dataset_id": dataset.id, "record_count": dataset.record_count},
             )

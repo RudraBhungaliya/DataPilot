@@ -50,6 +50,7 @@ from app.workflows.executors.discovery import SourceDiscoveryStepExecutor
 from app.workflows.executors.collection import CollectionStepExecutor
 from app.workflows.executors.pipeline import (
     ExtractionStepExecutor,
+    EnrichmentStepExecutor,
     NormalizeStepExecutor,
     ValidationStepExecutor,
     DeduplicateStepExecutor,
@@ -90,6 +91,7 @@ def get_default_registry() -> ExecutorRegistry:
 
     # Wire Phase 5 real data intelligence pipeline
     registry.register(StepType.EXTRACT_DATA, ExtractionStepExecutor())
+    registry.register(StepType.ENRICH_DATA, EnrichmentStepExecutor())
     registry.register(StepType.NORMALIZE_DATA, NormalizeStepExecutor())
     registry.register(StepType.VALIDATE_DATA, ValidationStepExecutor())
     registry.register(StepType.DEDUPLICATE_DATA, DeduplicateStepExecutor())

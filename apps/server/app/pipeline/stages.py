@@ -6,6 +6,7 @@ ExtractionRecord instances.
 """
 
 import csv
+import difflib
 import io
 import json
 from typing import Any, Dict, List, Optional
@@ -103,44 +104,120 @@ def _evaluate_filter(data: Dict[str, Any], rule: Dict[str, Any]) -> bool:
     return actual == expected
 
 
+_IDENTITY_FIELD_CANDIDATES = (
+    "company_name", "name", "title", "id", "url", "website", "repository",
+    "product_name", "lab_name", "sponsor_name", "record_id",
+)
+
+
+def _is_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
+
+
+def _has_identity(data: Dict[str, Any], required_fields: List[str]) -> bool:
+    """A record is meaningful only if it carries at least one identifying value."""
+    for field in list(required_fields or []) + list(_IDENTITY_FIELD_CANDIDATES):
+        if _is_present((data or {}).get(field)):
+            return True
+    return any(_is_present(v) for v in (data or {}).values())
+
+
 def validate_record(
     data: Dict[str, Any],
     required_fields: List[str],
     filters: Optional[List[Dict[str, Any]]] = None,
-) -> List[str]:
-    """Returns a list of validation error strings (empty list means valid)."""
+    strict: bool = False,
+) -> Dict[str, Any]:
+    """
+    Evaluates a single record.
+
+    Lenient (default): a record is valid if it carries at least one identity value;
+    missing requested fields are recorded (not fatal), filters whose field is absent
+    are marked unverified, and completeness is scored.
+
+    Strict: every requested field is required and every filter must be verifiable.
+    """
+    data = data or {}
+    required_fields = required_fields or []
+    present = [f for f in required_fields if _is_present(data.get(f))]
+    missing = [f for f in required_fields if f not in present]
+    completeness = round(len(present) / len(required_fields), 4) if required_fields else 1.0
+
     errors: List[str] = []
-    for field in required_fields or []:
-        value = data.get(field)
-        if value is None or (isinstance(value, str) and not value.strip()):
+    warnings: List[str] = []
+
+    if strict:
+        for field in missing:
             errors.append(f"missing_required_field:{field}")
+
+    if not _has_identity(data, required_fields):
+        errors.append("no_identity_fields")
 
     for rule in filters or []:
         if not isinstance(rule, dict):
             continue
+        field = rule.get("field")
+        if field is not None and not _is_present(data.get(field)):
+            # Filter cannot be evaluated because the field is missing
+            if strict:
+                errors.append(f"filter_failed:{field}")
+            else:
+                warnings.append(f"unverified_filter:{field}")
+            continue
         if not _evaluate_filter(data, rule):
-            errors.append(f"filter_failed:{rule.get('field')}")
+            errors.append(f"filter_failed:{field}")
 
-    return errors
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "missing_fields": missing,
+        "completeness": completeness,
+    }
 
 
 def validate_records(
     records: List[ExtractionRecord],
     required_fields: List[str],
     filters: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, int]:
-    """Validates records in place. Returns {'valid': n, 'invalid': m}."""
+    strict: bool = False,
+) -> Dict[str, Any]:
+    """Validates records in place and returns aggregate statistics."""
     valid = 0
     invalid = 0
+    missing_counts: Dict[str, int] = {}
+    completeness_values: List[float] = []
+
     for record in records:
-        errors = validate_record(record.data, required_fields, filters)
-        record.validation_errors = errors
-        record.is_valid = len(errors) == 0
+        result = validate_record(record.data, required_fields, filters, strict=strict)
+        record.validation_errors = result["errors"] + result["warnings"]
+        record.missing_fields = result["missing_fields"]
+        record.completeness = result["completeness"]
+        record.is_valid = len(result["errors"]) == 0
+
+        completeness_values.append(result["completeness"])
+        for field in result["missing_fields"]:
+            missing_counts[field] = missing_counts.get(field, 0) + 1
+
         if record.is_valid:
             valid += 1
         else:
             invalid += 1
-    return {"valid": valid, "invalid": invalid}
+
+    mean_completeness = (
+        round(sum(completeness_values) / len(completeness_values), 4) if completeness_values else 0.0
+    )
+    return {
+        "valid": valid,
+        "invalid": invalid,
+        "mean_completeness": mean_completeness,
+        "missing_counts": missing_counts,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -162,16 +239,30 @@ def build_dedupe_key(data: Dict[str, Any], keys: List[str]) -> Optional[str]:
     return "|".join(parts)
 
 
+def _similarity(a: str, b: str) -> float:
+    """Normalized string similarity in [0, 1]."""
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if len(a) < 4 or len(b) < 4:
+        return 1.0 if a == b else 0.0  # avoid merging short/ambiguous keys
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def mark_duplicates(
     records: List[ExtractionRecord],
     keys: List[str],
     match_threshold: float = 0.95,
 ) -> int:
     """
-    Marks duplicate records in place (keeping the first occurrence of each key).
+    Marks duplicate records in place (keeping the first occurrence).
+
+    Exact key matches are always duplicates; when match_threshold < 1.0,
+    near-identical keys are also treated as duplicates (fuzzy dedup).
     Returns the number of records marked as duplicates.
     """
-    seen: Dict[str, str] = {}
+    seen: List[tuple] = []  # (canonical_key, record_id)
     duplicates = 0
     for record in records:
         key = build_dedupe_key(record.data, keys)
@@ -179,11 +270,18 @@ def mark_duplicates(
         if not key:
             record.is_duplicate = False
             continue
-        if key in seen:
+
+        match = None
+        for seen_key, _ in seen:
+            if key == seen_key or _similarity(key, seen_key) >= match_threshold:
+                match = seen_key
+                break
+
+        if match is not None:
             record.is_duplicate = True
             duplicates += 1
         else:
-            seen[key] = record.record_id
+            seen.append((key, record.record_id))
             record.is_duplicate = False
     return duplicates
 
@@ -209,3 +307,12 @@ def records_to_json(records: List[ExtractionRecord], fields: List[str]) -> str:
         else:
             rows.append(record.data)
     return json.dumps(rows, indent=2, default=str)
+
+
+def records_to_jsonl(records: List[ExtractionRecord], fields: List[str]) -> str:
+    """Newline-delimited JSON, one record per line (stream-friendly)."""
+    lines = []
+    for record in records:
+        row = {field: record.data.get(field) for field in fields} if fields else record.data
+        lines.append(json.dumps(row, default=str))
+    return "\n".join(lines) + ("\n" if lines else "")

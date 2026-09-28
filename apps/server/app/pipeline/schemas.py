@@ -29,6 +29,8 @@ class ExtractionRecord(BaseModel):
     confidence: float = 0.5
     is_valid: bool = True
     validation_errors: List[str] = Field(default_factory=list)
+    missing_fields: List[str] = Field(default_factory=list)
+    completeness: float = 0.0
     dedupe_key: Optional[str] = None
     is_duplicate: bool = False
     dataset_id: Optional[str] = None
@@ -45,10 +47,14 @@ class PipelineStats(BaseModel):
     documents_processed: int = 0
     records_extracted: int = 0
     records_normalized: int = 0
+    records_enriched: int = 0
     records_evaluated: int = 0
     records_valid: int = 0
     records_invalid: int = 0
     duplicates_removed: int = 0
     records_in_dataset: int = 0
+    mean_completeness: float = 0.0
+    missing_counts: Dict[str, int] = Field(default_factory=dict)
+    field_coverage: Dict[str, float] = Field(default_factory=dict)
     method_counts: Dict[str, int] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)

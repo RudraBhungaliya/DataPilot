@@ -201,12 +201,14 @@ class WorkflowService:
         self,
         workflow_id: str,
         db: AsyncSession,
+        skip_source: bool = False,
     ) -> WorkflowDefinition:
         """
         Resumes a workflow that was paused for human intervention.
 
         Resets the paused step so the engine re-runs it and continues with the
-        remaining (still PENDING) steps.
+        remaining (still PENDING) steps. When skip_source is True the blocked
+        source is abandoned in favour of alternative sources.
         """
         record = await self.get_workflow_by_id(workflow_id=workflow_id, db=db)
         if not record:
@@ -227,13 +229,14 @@ class WorkflowService:
             if step.status == StepStatus.HUMAN_ACTION_REQUIRED:
                 step.status = StepStatus.PENDING
                 step.error = None
+                step.metadata["skip_source"] = skip_source
                 reset_any = True
         if not reset_any:
             logger.warning(f"Workflow '{workflow_id}' had no HUMAN_ACTION_REQUIRED step to reset.")
 
         workflow_def.status = WorkflowStatus.PLANNED
         record.error = None
-        logger.info(f"Resuming workflow '{workflow_id}' from step state.")
+        logger.info(f"Resuming workflow '{workflow_id}' (skip_source={skip_source}).")
         return await self._run_and_persist(record, workflow_def, db)
 
     async def get_workflow(

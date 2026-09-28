@@ -133,6 +133,27 @@ async def test_requirement_parser_success():
 
 
 @pytest.mark.asyncio
+async def test_requirement_parser_never_blocks_on_ambiguity():
+    """Ambiguous prompts are converted into assumptions; the parser never asks a question."""
+    ambiguous_response = {
+        "objective": "Unclear request",
+        "entity": "unknown",
+        "required_fields": [],
+        "output_format": "table",
+        "confidence_score": 0.2,
+        "is_ambiguous": True,
+        "clarification_needed": "What industry do you mean?",
+        "assumptions": [],
+    }
+    parser = RequirementParser(provider=MockProvider(mock_response=ambiguous_response))
+    result = await parser.parse("give me data")
+
+    assert result.is_ambiguous is False
+    assert result.clarification_needed is None
+    assert any("What industry" in a for a in result.assumptions)
+
+
+@pytest.mark.asyncio
 async def test_requirement_parser_invalid_ai_output():
     """Ensures parser raises RequirementParsingError when LLM returns invalid schema."""
     bad_mock_llm = MockProvider(mock_response={
@@ -204,7 +225,7 @@ def test_api_parse_endpoint_empty_prompt_validation():
 
 
 def test_api_parse_endpoint_ambiguous_prompt():
-    """Tests ambiguous prompt parsing where clarification is requested."""
+    """Ambiguous prompts no longer block: the requirement proceeds with assumptions."""
     ambiguous_response = {
         "objective": "Unclear request",
         "entity": "unknown",
@@ -230,8 +251,12 @@ def test_api_parse_endpoint_ambiguous_prompt():
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["requirement"]["is_ambiguous"] is True
-        assert data["clarification_needed"] == "What specific data or industry are you looking to extract?"
+        # Never blocks the user with a question
+        assert data["requirement"]["is_ambiguous"] is False
+        assert data["clarification_needed"] is None
+        assert any(
+            "What specific data" in a for a in data["requirement"].get("assumptions", [])
+        )
 
 
 def test_api_parse_endpoint_provider_auth_error():

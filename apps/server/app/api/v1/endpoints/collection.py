@@ -15,6 +15,8 @@ from app.collection.schemas import (
     RawDocument,
 )
 from app.collection.dependencies import get_collection_service
+from app.api.v1.endpoints.jobs import JobSubmitResponse
+from app.jobs.service import get_job_service
 from app.db.session import get_db
 from app.core.logger import logger
 
@@ -24,6 +26,56 @@ collection_service = get_collection_service()
 
 class CreateJobRequest(BaseModel):
     collection_request: CollectionRequest
+
+
+class AvailabilityRequest(BaseModel):
+    entity: str = Field(..., min_length=1)
+    required_fields: List[str] = Field(default_factory=list)
+    source_preferences: List[str] = Field(default_factory=list)
+    constraints: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FieldAvailability(BaseModel):
+    field: str
+    status: str
+    reason: str
+    sources: List[str] = Field(default_factory=list)
+
+
+class AvailabilityResponse(BaseModel):
+    entity: str
+    sources_discovered: int
+    obtainable: List[str] = Field(default_factory=list)
+    unknown: List[str] = Field(default_factory=list)
+    availability: List[FieldAvailability] = Field(default_factory=list)
+
+
+@router.post(
+    "/availability",
+    response_model=AvailabilityResponse,
+    summary="Preview which requested fields the discovered sources can provide",
+    status_code=status.HTTP_200_OK,
+)
+async def preview_availability(payload: AvailabilityRequest, db: AsyncSession = Depends(get_db)) -> AvailabilityResponse:
+    """Runs discovery and returns a per-field availability estimate (grounding preview)."""
+    request = CollectionRequest(
+        objective=f"Availability check for {payload.entity}",
+        entity=payload.entity,
+        required_fields=payload.required_fields,
+        source_preferences=payload.source_preferences,
+        constraints=payload.constraints or {},
+    )
+    sources = await collection_service.discover_sources(request)
+    estimates = collection_service.discovery.estimate_availability(request, sources)
+    obtainable = [e["field"] for e in estimates if e["status"] == "obtainable"]
+    unknown = [e["field"] for e in estimates if e["status"] != "obtainable"]
+    return AvailabilityResponse(
+        entity=payload.entity,
+        sources_discovered=len(sources),
+        obtainable=obtainable,
+        unknown=unknown,
+        availability=[FieldAvailability(**e) for e in estimates],
+    )
 
 
 class CreateJobResponse(BaseModel):
@@ -190,6 +242,30 @@ async def list_recent_documents(
     return docs
 
 
+@router.post(
+    "/jobs/{job_id}/execute-async",
+    response_model=JobSubmitResponse,
+    summary="Execute a collection job in the background",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def execute_collection_job_async(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> JobSubmitResponse:
+    """
+    Queues a collection job on the background worker and returns a job handle.
+    Poll GET /api/v1/jobs/{job_id} for status and results.
+    """
+    job = await collection_service.get_job(job_id=job_id, db=db)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CollectionJob '{job_id}' not found.",
+        )
+    task = await get_job_service().submit("collection.execute", {"collection_job_id": job_id})
+    return JobSubmitResponse(id=task.id, kind=task.kind, status=task.status)
+
+
 @router.get(
     "/jobs/{job_id}",
     summary="Get collection job status and audit statistics",
@@ -220,6 +296,7 @@ async def get_collection_job(
 )
 async def resume_collection_job(
     job_id: str,
+    skip_source: bool = Query(default=False, description="Abandon the blocked source and use alternatives"),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResult:
     """
@@ -242,7 +319,7 @@ async def resume_collection_job(
         )
 
     try:
-        result = await collection_service.resume_job(job_id=job_id, db=db)
+        result = await collection_service.resume_job(job_id=job_id, db=db, skip_current_source=skip_source)
         return result
     except Exception as e:
         logger.error(f"Failed to resume collection job {job_id}: {e}", exc_info=True)

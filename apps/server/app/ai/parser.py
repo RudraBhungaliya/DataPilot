@@ -63,7 +63,16 @@ class RequirementParser:
 
         try:
             requirement = StructuredRequirement.model_validate(raw_data)
-            return requirement
         except ValidationError as val_err:
             logger.error(f"Pydantic schema validation failed on AI output: {val_err.errors()}")
             raise RequirementParsingError("AI produced an invalid structured requirement schema.")
+
+        # Safety net: DataPilot never blocks on clarification. Any ambiguity signal is
+        # converted into a recorded assumption so the pipeline always proceeds.
+        if requirement.is_ambiguous:
+            if requirement.clarification_needed:
+                requirement.assumptions = list(requirement.assumptions) + [requirement.clarification_needed]
+            requirement.is_ambiguous = False
+            requirement.clarification_needed = None
+
+        return requirement

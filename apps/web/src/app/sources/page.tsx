@@ -28,7 +28,7 @@ import { Card } from "@/components/ui/Card";
 import {
   fetchSources,
   fetchCollectionJobs,
-  fetchDocuments,
+  fetchRecentDocuments,
   createCollectionJob,
   discoverJobSources,
   executeCollectionJob,
@@ -63,12 +63,9 @@ export default function SourcesPage() {
       ]);
       setSources(srcList);
       setJobs(jobList);
-      // Documents are scoped to a job; show the most recent job's documents.
-      if (jobList.length > 0) {
-        setDocuments(await fetchDocuments(jobList[0].id));
-      } else {
-        setDocuments([]);
-      }
+      // Show raw documents across all jobs (previously scoped to one job, which
+      // incorrectly displayed 0 when that job had no documents).
+      setDocuments(await fetchRecentDocuments());
     } catch (err) {
       console.error("Failed to load source engine data", err);
     } finally {

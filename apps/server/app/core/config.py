@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     DATAPILOT_REQUESTS_PER_DOMAIN: int = 5
     DATAPILOT_MIN_REQUEST_INTERVAL: float = 0.5  # seconds between requests to same domain
     DATAPILOT_MAX_DOCUMENT_SIZE_MB: int = 10
+    DATAPILOT_ROBOTS_ENFORCED: bool = False  # enable robots.txt fetching + enforcement (recommended in production)
     DATAPILOT_MAX_HUMAN_ATTEMPTS: int = 3  # max human-in-the-loop CAPTCHA retries before blocking a source
     DATAPILOT_CACHE_MAX_ENTRIES: int = 1000  # in-memory document cache bound
     DATAPILOT_MAX_IN_MEMORY_JOBS: int = 200  # bound for in-memory collection job fallback store
@@ -126,6 +127,31 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Union[str, None] = None
     SMTP_FROM_EMAIL: str = "noreply@datapilot.local"
     SMTP_USE_TLS: bool = True
+
+    # Phase 7: Security / Production
+    AUTH_ENABLED: bool = False  # enable API-key auth (turn on in production)
+    BOOTSTRAP_API_KEY: Union[str, None] = None  # admin key for first-run key provisioning
+    RATE_LIMIT_PER_MINUTE: int = 0  # 0 disables rate limiting
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RUN_EMBEDDED_WORKER: bool = True  # run the background job worker in-process
+    WORKER_CONCURRENCY: int = 2
+    METRICS_ENABLED: bool = True
+
+    # Phase 4+: Dynamic source discovery
+    SEARCH_PROVIDER: str = ""  # "", "brave", "tavily" or "generic"
+    SEARCH_API_URL: str = ""
+    SEARCH_API_KEY: Union[str, None] = None
+    SEARCH_RESULTS_PATH: str = "web.results"  # dotted path to the results array
+    SEARCH_URL_FIELD: str = "url"  # field holding the result URL
+    SEARCH_TITLE_FIELD: str = "title"  # field holding the title
+    SEARCH_SNIPPET_FIELD: str = "description"  # field holding the snippet
+    SEARCH_MAX_RESULTS: int = 8
+    SEARCH_TIMEOUT_SECONDS: float = 8.0
+
+    # Phase 5+: Grounding / verification
+    GROUNDING_PROBE_ENABLED: bool = False  # live-fetch a sample to verify field availability
+    GROUNDING_SAMPLE_SIZE: int = 3
+    GROUNDING_MIN_COVERAGE: float = 0.5  # below this, auto-broaden sources / enrich
 
 
 settings = Settings()

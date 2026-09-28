@@ -32,6 +32,7 @@ class MockStepExecutor(BaseStepExecutor):
             StepType.DISCOVER_SOURCES: self._mock_discover_sources,
             StepType.COLLECT_DATA: self._mock_collect_data,
             StepType.EXTRACT_DATA: self._mock_extract_data,
+            StepType.ENRICH_DATA: self._mock_enrich_data,
             StepType.NORMALIZE_DATA: self._mock_normalize_data,
             StepType.VALIDATE_DATA: self._mock_validate_data,
             StepType.DEDUPLICATE_DATA: self._mock_deduplicate_data,
@@ -132,6 +133,14 @@ class MockStepExecutor(BaseStepExecutor):
             "records_extracted": len(sample_records),
             "extracted_fields": fields,
             "sample_records": sample_records,
+        }
+
+    def _mock_enrich_data(self, step: WorkflowStep, context: ExecutionContext, entity: str, fields: List[str]) -> Dict[str, Any]:
+        return {
+            "is_mock": True,
+            "mock_notice": self.MOCK_NOTICE,
+            "records_evaluated": 5,
+            "records_enriched": 2,
         }
 
     def _mock_normalize_data(self, step: WorkflowStep, context: ExecutionContext, entity: str, fields: List[str]) -> Dict[str, Any]:

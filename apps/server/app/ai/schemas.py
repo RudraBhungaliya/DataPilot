@@ -113,6 +113,10 @@ class StructuredRequirement(BaseModel):
         le=1.0, 
         description="Model confidence score in the interpretation"
     )
+    assumptions: List[str] = Field(
+        default_factory=list,
+        description="Best-effort assumptions made when the prompt was vague or incomplete"
+    )
     is_ambiguous: bool = Field(
         default=False, 
         description="Whether the prompt is too vague or lacks critical context"
