@@ -202,3 +202,48 @@ class RawDocumentStore:
 
         matched = [doc for doc in self._memory_store.values() if doc.source_id == source_id]
         return matched[:limit]
+
+    async def list_recent(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        db: Optional[AsyncSession] = None,
+    ) -> List[RawDocument]:
+        """Lists the most recently collected raw documents across all jobs."""
+        if db is not None:
+            try:
+                stmt = (
+                    select(Document)
+                    .order_by(desc(Document.collected_at))
+                    .offset(offset)
+                    .limit(limit)
+                )
+                res = await db.execute(stmt)
+                db_docs = res.scalars().all()
+                if db_docs:
+                    return [
+                        RawDocument(
+                            document_id=d.id,
+                            job_id=d.job_id,
+                            source_id=d.source_id,
+                            url=d.url,
+                            canonical_url=d.canonical_url,
+                            content_type=d.content_type,
+                            content=d.content,
+                            content_hash=d.content_hash,
+                            status_code=d.status_code,
+                            collected_at=d.collected_at,
+                            metadata=d.metadata_,
+                        )
+                        for d in db_docs
+                    ]
+            except Exception as e:
+                logger.warning(f"Failed to list recent documents from DB: {e}")
+
+        floor = datetime.min.replace(tzinfo=timezone.utc)
+        matched = sorted(
+            self._memory_store.values(),
+            key=lambda d: d.collected_at or floor,
+            reverse=True,
+        )
+        return matched[offset : offset + limit]

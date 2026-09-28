@@ -400,3 +400,29 @@ async def test_collection_executor_resumes_existing_job():
     assert service.created == 0
     assert step.metadata["human_action_required"] is False
 
+
+# ---------------------------------------------------------------------------
+# 8. Collection list endpoints used by the UI
+# ---------------------------------------------------------------------------
+
+def test_api_collection_list_endpoints():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/collection/jobs",
+        json={"collection_request": {"objective": "List me", "entity": "startup"}},
+    )
+    assert created.status_code == 201
+
+    jobs = client.get("/api/v1/collection/jobs")
+    assert jobs.status_code == 200
+    assert isinstance(jobs.json(), list) and len(jobs.json()) >= 1
+
+    docs = client.get("/api/v1/collection/documents")
+    assert docs.status_code == 200
+    assert isinstance(docs.json(), list)
+
+

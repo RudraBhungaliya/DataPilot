@@ -30,7 +30,7 @@ import {
   executeWorkflow,
   fetchWorkflowSteps,
   fetchWorkflowDefinition,
-  resumeCollectionJob,
+  resumeWorkflow,
 } from "@/lib/api";
 
 
@@ -54,20 +54,37 @@ export function WorkflowEngineView({
   const [isResuming, setIsResuming] = useState<boolean>(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleResume = async (jobId: string) => {
+  const handleResume = async () => {
     setIsResuming(true);
+    setExecutionError(null);
     try {
-      const res = await resumeCollectionJob(jobId);
-      if (res.ok) {
-        setIsExecuting(true);
-        startPolling(workflow.workflow_id);
+      // Resume the workflow itself, which resumes the paused collection job.
+      setIsExecuting(true);
+      startPolling(workflow.workflow_id);
+      const res = await resumeWorkflow(workflow.workflow_id);
+      if (res.success && res.workflow) {
+        setWorkflow(res.workflow);
+        if (onWorkflowUpdated) onWorkflowUpdated(res.workflow);
+        if (res.workflow.status === "PAUSED") {
+          setExecutionError(res.workflow.error || "Still awaiting human action.");
+        }
       } else {
-        alert(`Resume failed: ${res.data?.detail || res.error || "Unable to resume"}`);
+        setExecutionError(res.error || "Resume failed.");
       }
     } catch (err: any) {
-      alert(`Resume error: ${err.message}`);
+      setExecutionError(err.message || "Resume failed.");
     } finally {
       setIsResuming(false);
+      setIsExecuting(false);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      const fresh = await fetchWorkflowDefinition(workflow.workflow_id);
+      if (fresh && fresh.workflow_definition) {
+        setWorkflow(fresh.workflow_definition);
+        if (onWorkflowUpdated) onWorkflowUpdated(fresh.workflow_definition);
+      }
     }
   };
 
@@ -225,7 +242,6 @@ export function WorkflowEngineView({
           </div>
         );
       case "HUMAN_ACTION_REQUIRED":
-      case "PAUSED":
         return (
           <div className="w-7 h-7 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center shrink-0 animate-pulse">
             <ShieldAlert className="w-4 h-4" />
@@ -305,16 +321,20 @@ export function WorkflowEngineView({
             </div>
           </div>
 
-          {/* Phase 3 Mock Notice Pill */}
+          {/* Execution mode notice */}
           <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800/90 text-xs">
             <div className="flex items-center gap-2 text-sky-300">
               <ShieldAlert className="w-4 h-4 text-sky-400 shrink-0" />
               <span>
-                <strong>Verification Mode:</strong> This workflow runs against deterministic{" "}
+                <strong>Phase 4 Active:</strong>{" "}
                 <span className="font-mono text-sky-200 bg-sky-950/60 px-1 py-0.5 rounded">
-                  MockStepExecutors
-                </span>
-                . External crawlers & scraping workers activate in Phase 4.
+                  DISCOVER_SOURCES
+                </span>{" "}
+                and{" "}
+                <span className="font-mono text-sky-200 bg-sky-950/60 px-1 py-0.5 rounded">
+                  COLLECT_DATA
+                </span>{" "}
+                run the real collection engine; downstream extraction steps remain placeholders until Phase 5.
               </span>
             </div>
             <span className="text-[11px] text-slate-400 font-mono shrink-0 hidden sm:inline">
@@ -366,7 +386,7 @@ export function WorkflowEngineView({
 
               {jobId && (
                 <Button
-                  onClick={() => handleResume(jobId)}
+                  onClick={handleResume}
                   disabled={isResuming}
                   className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0 shadow-lg shadow-amber-500/25 px-5"
                 >
@@ -494,7 +514,7 @@ export function WorkflowEngineView({
                       <div className="pt-1 flex items-center justify-between text-[11px] text-emerald-400 font-mono">
                         <span className="flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Execution successful • Mock output captured
+                          Execution successful • output captured
                         </span>
                         <button
                           type="button"
@@ -530,8 +550,14 @@ export function WorkflowEngineView({
                               <span className="text-[11px] uppercase tracking-wider font-semibold text-emerald-400 flex items-center gap-1">
                                 <FileCheck2 className="w-3.5 h-3.5" /> Step Output Payload
                               </span>
-                              <span className="text-[10px] font-mono bg-sky-950 text-sky-300 px-1.5 py-0.5 rounded border border-sky-800">
-                                MOCK DATA
+                              <span
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                                  step.output?.is_mock === false
+                                    ? "bg-emerald-950 text-emerald-300 border-emerald-800"
+                                    : "bg-sky-950 text-sky-300 border-sky-800"
+                                }`}
+                              >
+                                {step.output?.is_mock === false ? "LIVE DATA" : "MOCK DATA"}
                               </span>
                             </div>
                             <div className="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800 font-mono text-xs text-emerald-300 overflow-x-auto max-h-60">

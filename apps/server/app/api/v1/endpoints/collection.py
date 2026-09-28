@@ -43,6 +43,33 @@ class JobDocumentsResponse(BaseModel):
     documents: List[RawDocument]
 
 
+def _serialize_job(job) -> Dict[str, Any]:
+    """Serializes a CollectionJob (ORM or in-memory) into an API dictionary."""
+    return {
+        "id": job.id,
+        "job_id": job.id,
+        "request_id": job.request_id,
+        "workflow_id": job.workflow_id,
+        "status": job.status,
+        "source": job.source,
+        "progress": job.progress,
+        "current_step": job.current_step,
+        "human_action_required": job.human_action_required,
+        "human_action_reason": job.human_action_reason,
+        "checkpoint": job.checkpoint,
+        "collection_request": job.collection_request,
+        "discovered_sources": job.discovered_sources,
+        "selected_sources": job.selected_sources,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "created_at": job.created_at.isoformat() if getattr(job, "created_at", None) else None,
+        "updated_at": job.updated_at.isoformat() if getattr(job, "updated_at", None) else None,
+        "metadata": job.metadata_,
+        "error": job.error,
+        "errors": job.errors,
+    }
+
+
 @router.post(
     "/jobs",
     response_model=CreateJobResponse,
@@ -129,6 +156,41 @@ async def execute_collection_job(
 
 
 @router.get(
+    "/jobs",
+    response_model=List[Dict[str, Any]],
+    summary="List recent collection jobs",
+    status_code=status.HTTP_200_OK,
+)
+async def list_collection_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """Returns the most recent collection jobs with their lifecycle state."""
+    jobs = await collection_service.list_recent_jobs(limit=limit, db=db)
+    return [_serialize_job(job) for job in jobs]
+
+
+@router.get(
+    "/documents",
+    response_model=List[RawDocument],
+    summary="List recent raw documents across all jobs",
+    status_code=status.HTTP_200_OK,
+)
+async def list_recent_documents(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> List[RawDocument]:
+    """Returns the most recently collected raw documents with bounded content previews."""
+    docs = await collection_service.get_recent_documents(limit=limit, offset=offset, db=db)
+    preview_limit = 2000
+    for doc in docs:
+        if doc.content and len(doc.content) > preview_limit:
+            doc.content = doc.content[:preview_limit]
+    return docs
+
+
+@router.get(
     "/jobs/{job_id}",
     summary="Get collection job status and audit statistics",
     status_code=status.HTTP_200_OK,
@@ -147,29 +209,7 @@ async def get_collection_job(
             detail=f"CollectionJob '{job_id}' not found.",
         )
 
-    return {
-        "id": job.id,
-        "job_id": job.id,
-        "request_id": job.request_id,
-        "workflow_id": job.workflow_id,
-        "status": job.status,
-        "source": job.source,
-        "progress": job.progress,
-        "current_step": job.current_step,
-        "human_action_required": job.human_action_required,
-        "human_action_reason": job.human_action_reason,
-        "checkpoint": job.checkpoint,
-        "collection_request": job.collection_request,
-        "discovered_sources": job.discovered_sources,
-        "selected_sources": job.selected_sources,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-        "created_at": job.created_at.isoformat() if hasattr(job, "created_at") and job.created_at else None,
-        "updated_at": job.updated_at.isoformat() if hasattr(job, "updated_at") and job.updated_at else None,
-        "metadata": job.metadata_,
-        "error": job.error,
-        "errors": job.errors,
-    }
+    return _serialize_job(job)
 
 
 @router.post(

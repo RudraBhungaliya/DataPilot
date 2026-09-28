@@ -338,21 +338,25 @@ export async function fetchWorkflows(): Promise<WorkflowRecord[]> {
 // Phase 4: Source Collection Engine Interfaces & APIs
 // ============================================================================
 
+export interface SourceRateLimit {
+  requests?: number;
+  period_seconds?: number;
+  min_interval?: number;
+  max_concurrency?: number;
+}
+
 export interface SourceDefinition {
   id: string;
+  source_id: string;
   name: string;
-  domain: string;
   type: string;
+  base_url: string;
+  domain: string;
+  capabilities: string[];
   access_method: string;
   status: string;
-  tier: number;
-  rate_limit_per_minute: number;
-  requires_auth: boolean;
-  supports_pagination: boolean;
-  success_rate: number;
+  rate_limit?: SourceRateLimit;
   metadata?: Record<string, any>;
-  created_at?: string;
-  updated_at?: string;
 }
 
 export interface CollectionJob {
@@ -380,7 +384,7 @@ export interface CollectionJob {
 
 
 export interface RawDocument {
-  id: string;
+  document_id: string;
   job_id: string;
   source_id: string;
   url: string;
@@ -417,48 +421,63 @@ export async function fetchCollectionJobs(): Promise<CollectionJob[]> {
   }
 }
 
-export async function fetchDocuments(jobId?: string): Promise<RawDocument[]> {
+export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
   try {
-    const url = jobId
-      ? `${API_BASE}/collection/documents?job_id=${encodeURIComponent(jobId)}`
-      : `${API_BASE}/collection/documents`;
-    const res = await fetch(url, {
-      cache: 'no-store',
-    });
+    const res = await fetch(
+      `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/documents?limit=50`,
+      { cache: 'no-store' }
+    );
     if (!res.ok) return [];
-    return await res.json();
+    const data = await res.json();
+    return data.documents ?? [];
   } catch {
     return [];
   }
 }
 
-export async function testDiscoverSources(params: {
-  query: string;
-  domain?: string;
-  entity?: string;
-}): Promise<any> {
+export async function createCollectionJob(
+  collectionRequest: Record<string, any>
+): Promise<{ ok: boolean; status: number; data: any }> {
   try {
-    const res = await fetch(`${API_BASE}/collection/discover`, {
+    const res = await fetch(`${API_BASE}/collection/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({ collection_request: collectionRequest }),
     });
-    return await res.json();
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { ok: false, status: 0, data: { error: err.message } };
   }
 }
 
-export async function triggerDirectCollection(requestPayload: any): Promise<any> {
+export async function discoverJobSources(
+  jobId: string
+): Promise<{ ok: boolean; status: number; data: any }> {
   try {
-    const res = await fetch(`${API_BASE}/collection/execute`, {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/discover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestPayload),
     });
-    return await res.json();
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { ok: false, status: 0, data: { error: err.message } };
+  }
+}
+
+export async function executeCollectionJob(
+  jobId: string
+): Promise<{ ok: boolean; status: number; data: any }> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, status: 0, data: { error: err.message } };
   }
 }
 
@@ -486,5 +505,22 @@ export async function resumeCollectionJob(jobId: string): Promise<any> {
     return { ok: false, error: err.message };
   }
 }
+
+export async function resumeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.detail || 'Workflow resume failed.' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: 'Failed to resume workflow.' };
+  }
+}
+
 
 

@@ -29,8 +29,9 @@ import {
   fetchSources,
   fetchCollectionJobs,
   fetchDocuments,
-  testDiscoverSources,
-  triggerDirectCollection,
+  createCollectionJob,
+  discoverJobSources,
+  executeCollectionJob,
   resumeCollectionJob,
   SourceDefinition,
   CollectionJob,
@@ -56,14 +57,18 @@ export default function SourcesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [srcList, jobList, docList] = await Promise.all([
+      const [srcList, jobList] = await Promise.all([
         fetchSources(),
         fetchCollectionJobs(),
-        fetchDocuments(),
       ]);
       setSources(srcList);
       setJobs(jobList);
-      setDocuments(docList);
+      // Documents are scoped to a job; show the most recent job's documents.
+      if (jobList.length > 0) {
+        setDocuments(await fetchDocuments(jobList[0].id));
+      } else {
+        setDocuments([]);
+      }
     } catch (err) {
       console.error("Failed to load source engine data", err);
     } finally {
@@ -79,13 +84,21 @@ export default function SourcesPage() {
     setTestRunning(true);
     setTestResult(null);
     try {
-      const res = await testDiscoverSources({
-        query: testQuery,
-        entity: testEntity,
+      const created = await createCollectionJob({
+        objective: `${testQuery || "AI startups"} (${testEntity || "startup"})`,
+        entity: testEntity || "startup",
+        required_fields: [],
+        constraints: {},
+        source_preferences: [],
       });
-      setTestResult(res);
-      // Refresh list to show newly discovered sources
-      loadData();
+      if (!created.ok) {
+        setTestResult({ success: false, ...created.data });
+        return;
+      }
+      const jobId = created.data.job_id;
+      const discovered = await discoverJobSources(jobId);
+      setTestResult({ success: discovered.ok, job_id: jobId, ...discovered.data });
+      await loadData();
     } catch (err: any) {
       setTestResult({ success: false, error: err.message });
     } finally {
@@ -97,28 +110,21 @@ export default function SourcesPage() {
     setTestRunning(true);
     setTestResult(null);
     try {
-      const samplePayload = {
-        request_id: `req_${Date.now()}`,
-        workflow_id: null,
-        target_entity: testEntity || "startup",
-        search_query: testQuery || "AI startups",
-        sources: [
-          {
-            id: "src_hackernews_test",
-            name: "HackerNews API Feed",
-            domain: "news.ycombinator.com",
-            base_url: "https://hacker-news.firebaseio.com/v0/topstories.json",
-            type: "API",
-            access_method: "REST_API",
-            tier: 2,
-            rate_limit_per_minute: 60,
-          },
-        ],
-        parameters: { max_pages: 1 },
-      };
-      const res = await triggerDirectCollection(samplePayload);
-      setTestResult(res);
-      loadData();
+      const created = await createCollectionJob({
+        objective: `${testQuery || "AI startups"} (${testEntity || "startup"})`,
+        entity: testEntity || "startup",
+        required_fields: ["name"],
+        constraints: {},
+        source_preferences: [],
+      });
+      if (!created.ok) {
+        setTestResult({ success: false, ...created.data });
+        return;
+      }
+      const jobId = created.data.job_id;
+      const executed = await executeCollectionJob(jobId);
+      setTestResult({ success: executed.ok, job_id: jobId, ...executed.data });
+      await loadData();
     } catch (err: any) {
       setTestResult({ success: false, error: err.message });
     } finally {
@@ -338,7 +344,7 @@ export default function SourcesPage() {
                     </div>
                     <Badge
                       className={
-                        src.status === "ACTIVE"
+                        src.status === "active"
                           ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                           : "bg-amber-500/10 text-amber-400 border-amber-500/20"
                       }
@@ -349,26 +355,32 @@ export default function SourcesPage() {
 
                   <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-800/60 text-xs">
                     <div>
-                      <span className="text-slate-500">Access Method:</span>{" "}
-                      <span className="text-slate-300 font-mono">{src.access_method}</span>
+                      <span className="text-slate-500">Access:</span>{" "}
+                      <span className="text-slate-300 font-mono uppercase">{src.access_method}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Tier:</span>{" "}
-                      <span className="text-cyan-400 font-medium">Tier {src.tier}</span>
+                      <span className="text-slate-500">Type:</span>{" "}
+                      <span className="text-cyan-400 font-medium uppercase">{src.type}</span>
                     </div>
                     <div>
                       <span className="text-slate-500">Rate Limit:</span>{" "}
-                      <span className="text-slate-300">{src.rate_limit_per_minute}/min</span>
+                      <span className="text-slate-300">
+                        {src.rate_limit?.requests ?? "—"}/{src.rate_limit?.period_seconds ?? 60}s
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Pagination:</span>{" "}
-                      <span className="text-slate-300">{src.supports_pagination ? "Supported" : "Single Page"}</span>
+                      <span className="text-slate-500">Capabilities:</span>{" "}
+                      <span className="text-slate-300">{src.capabilities?.length ?? 0}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800/40 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>Success Rate: {Math.round(src.success_rate * 100)}%</span>
+                  <span className="truncate max-w-[60%]">
+                    {src.capabilities && src.capabilities.length > 0
+                      ? src.capabilities.slice(0, 4).join(", ")
+                      : "—"}
+                  </span>
                   <span className="font-mono text-slate-600">{src.id}</span>
                 </div>
               </Card>
@@ -405,7 +417,7 @@ export default function SourcesPage() {
             <div className="space-y-3">
               {documents.map((doc) => (
                 <Card
-                  key={doc.id}
+                  key={doc.document_id}
                   className="border-slate-800 bg-slate-900/40 p-4 hover:border-slate-700 transition-all"
                 >
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">

@@ -340,3 +340,40 @@ class CollectionService:
     ) -> List[RawDocument]:
         """Retrieves raw documents gathered for a specific job."""
         return await self.document_store.list_by_job(job_id=job_id, limit=limit, offset=offset, db=db)
+
+    async def get_recent_documents(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        db: Optional[AsyncSession] = None,
+    ) -> List[RawDocument]:
+        """Retrieves the most recently collected raw documents across all jobs."""
+        return await self.document_store.list_recent(limit=limit, offset=offset, db=db)
+
+    async def list_recent_jobs(
+        self,
+        limit: int = 20,
+        db: Optional[AsyncSession] = None,
+    ) -> List[CollectionJob]:
+        """Lists recent collection jobs (database-first, in-memory fallback)."""
+        if db is not None:
+            try:
+                stmt = (
+                    select(CollectionJob)
+                    .order_by(desc(CollectionJob.created_at))
+                    .limit(limit)
+                )
+                res = await db.execute(stmt)
+                db_jobs = list(res.scalars().all())
+                if db_jobs:
+                    return db_jobs
+            except Exception as e:
+                logger.warning(f"Failed to list collection jobs from DB: {e}")
+
+        floor = datetime.min.replace(tzinfo=timezone.utc)
+        jobs = sorted(
+            self._memory_jobs.values(),
+            key=lambda j: getattr(j, "created_at", None) or floor,
+            reverse=True,
+        )
+        return jobs[:limit]
