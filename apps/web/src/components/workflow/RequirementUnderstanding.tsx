@@ -156,7 +156,7 @@ export function RequirementUnderstanding() {
               </div>
             </div>
             <Badge variant="info" className="self-start sm:self-auto font-mono text-[11px]">
-              AI Engine: Gemini
+              AI Engine: Groq
             </Badge>
           </div>
 

@@ -39,6 +39,7 @@ from app.main import app
 from app.collection.schemas import (
     CollectionRequest,
     CollectionResult,
+    CollectionStrategy,
     SourceDefinition,
     RawDocument,
     SourceType,
@@ -450,6 +451,7 @@ async def test_captcha_detected_zyte_fallback_success():
         objective="Find AI startups",
         entity="startup",
         required_fields=["name"],
+        collection_strategy=CollectionStrategy(allow_zyte=True, human_action_on_captcha=False),
     )
 
     # 1. Mock HTTP collector raising CaptchaChallengeDetected
@@ -514,6 +516,7 @@ async def test_captcha_zyte_unavailable_alternative_source_discovery():
         objective="Find AI startups",
         entity="startup",
         required_fields=["name"],
+        collection_strategy=CollectionStrategy(allow_zyte=True, human_action_on_captcha=False),
     )
 
     async def mock_http_collect(src, *args, **kwargs):
@@ -572,6 +575,7 @@ async def test_captcha_zyte_fails_alternative_source_collected():
         objective="Find AI startups",
         entity="startup",
         required_fields=["name"],
+        collection_strategy=CollectionStrategy(allow_zyte=True, human_action_on_captcha=False),
     )
 
     async def mock_http_collect(src, *args, **kwargs):
@@ -815,7 +819,7 @@ def test_api_collection_jobs_endpoints():
     res_create = client.post("/api/v1/collection/jobs", json=job_payload)
     assert res_create.status_code == 201
     job_id = res_create.json()["job_id"]
-    assert res_create.json()["status"] == "CREATED"
+    assert res_create.json()["status"] in ["CREATED", "PENDING"]
 
     # 2. Discover sources
     res_disc = client.post(f"/api/v1/collection/jobs/{job_id}/discover")

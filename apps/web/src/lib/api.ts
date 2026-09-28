@@ -76,7 +76,7 @@ export interface WorkflowRecord {
   updated_at: string;
 }
 
-export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'HUMAN_ACTION_REQUIRED';
 
 export type StepType =
   | 'PARSE_REQUIREMENT'
@@ -367,9 +367,17 @@ export interface CollectionJob {
   completed_at?: string | null;
   error?: string | null;
   errors?: any[];
+  source?: Record<string, any> | null;
+  current_step?: string | null;
+  progress?: number;
+  human_action_required?: boolean;
+  human_action_reason?: string | null;
+  checkpoint?: Record<string, any> | null;
   metadata?: Record<string, any>;
   created_at?: string;
+  updated_at?: string;
 }
+
 
 export interface RawDocument {
   id: string;
@@ -453,4 +461,30 @@ export async function triggerDirectCollection(requestPayload: any): Promise<any>
     return { success: false, error: err.message };
   }
 }
+
+export async function fetchCollectionJob(jobId: string): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function resumeCollectionJob(jobId: string): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
 

@@ -50,7 +50,7 @@ def test_api_v1_workflows_parse():
         "is_ambiguous": False,
         "clarification_needed": None,
     }
-    with patch("app.ai.provider.GeminiProvider.generate_json", new_callable=AsyncMock) as mock_gen:
+    with patch("app.ai.provider.GroqProvider.generate_json", new_callable=AsyncMock) as mock_gen:
         mock_gen.return_value = mock_spec
         response = client.post(
             "/api/v1/workflows/parse",

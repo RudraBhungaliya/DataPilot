@@ -134,14 +134,22 @@ class WorkflowEngine:
                     context.step_outputs[step.id] = result.output
                     logger.info(f"Step '{step.name}' ({step.id}) completed successfully in {duration_ms}ms")
                 else:
-                    step.status = StepStatus.FAILED
-                    step.error = result.error or "Step executor returned failure without message."
-                    step.metadata.update(result.metadata)
-                    workflow.status = WorkflowStatus.FAILED
-                    workflow.error = f"Step '{step.name}' failed: {step.error}"
+                    if result.metadata.get("human_action_required"):
+                        step.status = StepStatus.HUMAN_ACTION_REQUIRED
+                        step.error = result.error or "Human action required: CAPTCHA encountered on source."
+                        step.metadata.update(result.metadata)
+                        workflow.status = WorkflowStatus.PAUSED
+                        logger.info(f"Step '{step.name}' ({step.id}) paused safely for human action (CAPTCHA detected)")
+                    else:
+                        step.status = StepStatus.FAILED
+                        step.error = result.error or "Step executor returned failure without message."
+                        step.metadata.update(result.metadata)
+                        workflow.status = WorkflowStatus.FAILED
+                        workflow.error = f"Step '{step.name}' failed: {step.error}"
+                        logger.warning(f"Step '{step.name}' ({step.id}) failed: {step.error}")
+
                     failed = True
                     failed_step_id = step.id
-                    logger.warning(f"Step '{step.name}' ({step.id}) failed: {step.error}")
 
             except Exception as exec_err:
                 step.status = StepStatus.FAILED

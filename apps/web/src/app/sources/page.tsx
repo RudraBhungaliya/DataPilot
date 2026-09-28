@@ -31,6 +31,7 @@ import {
   fetchDocuments,
   testDiscoverSources,
   triggerDirectCollection,
+  resumeCollectionJob,
   SourceDefinition,
   CollectionJob,
   RawDocument,
@@ -43,12 +44,14 @@ export default function SourcesPage() {
   const [documents, setDocuments] = useState<RawDocument[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedDoc, setSelectedDoc] = useState<RawDocument | null>(null);
+  const [resumingJobId, setResumingJobId] = useState<string | null>(null);
 
   // Playground state
   const [testQuery, setTestQuery] = useState("Indian AI Startups");
   const [testEntity, setTestEntity] = useState("startups");
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+
 
   const loadData = async () => {
     setLoading(true);
@@ -123,8 +126,29 @@ export default function SourcesPage() {
     }
   };
 
+  const handleResumeJob = async (jobId: string) => {
+    setResumingJobId(jobId);
+    try {
+      const res = await resumeCollectionJob(jobId);
+      if (res.ok) {
+        await loadData();
+      } else {
+        alert(`Resume failed: ${res.data?.detail || res.error || "Unable to resume"}`);
+      }
+    } catch (err: any) {
+      alert(`Resume error: ${err.message}`);
+    } finally {
+      setResumingJobId(null);
+    }
+  };
+
+  const humanActionJobs = jobs.filter(
+    (j) => j.status === "HUMAN_ACTION_REQUIRED" || (j as any).human_action_required
+  );
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-12">
+
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-[#0c1427] to-[#0a1020] border border-slate-800 p-6 md:p-8 shadow-2xl">
         <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -198,8 +222,68 @@ export default function SourcesPage() {
         </Card>
       </div>
 
+      {/* Human Action Required Notification Banners */}
+      {humanActionJobs.map((job) => (
+        <div
+          key={job.id}
+          className="p-6 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-amber-200 shadow-2xl space-y-4"
+        >
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold uppercase tracking-wider">
+                  Human action required
+                </div>
+                <h3 className="text-lg font-bold text-white">
+                  DataPilot encountered a CAPTCHA on this source. We have paused the collection safely.
+                </h3>
+                <p className="text-sm text-amber-200/80">
+                  Please complete the CAPTCHA at the source, then return to DataPilot and click Resume.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => handleResumeJob(job.id)}
+              disabled={resumingJobId === job.id}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0 shadow-lg shadow-amber-500/25 px-5"
+            >
+              <Play className={`w-4 h-4 mr-2 ${resumingJobId === job.id ? "animate-spin" : "fill-current"}`} />
+              {resumingJobId === job.id ? "Resuming..." : "Resume Collection"}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 bg-slate-950/70 rounded-xl border border-amber-500/20 text-xs font-mono">
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Source Name</span>
+              <span className="text-slate-200 font-semibold">{job.checkpoint?.source_name || (job as any).source?.name || "Protected Source"}</span>
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Source URL (Open in browser)</span>
+              <a
+                href={job.checkpoint?.source_url || (job as any).source?.base_url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-400 hover:underline flex items-center gap-1 truncate"
+              >
+                <span className="truncate">{job.checkpoint?.source_url || (job as any).source?.base_url || "N/A"}</span>
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              </a>
+            </div>
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Task ID & Status</span>
+              <span className="text-amber-400 font-semibold">{job.id} (HUMAN_ACTION_REQUIRED)</span>
+            </div>
+          </div>
+        </div>
+      ))}
+
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-800 gap-4">
+
         <button
           onClick={() => setActiveTab("sources")}
           className={`pb-3 text-sm font-medium transition-colors border-b-2 ${

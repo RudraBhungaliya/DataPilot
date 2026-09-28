@@ -60,7 +60,12 @@ class CollectionService:
             id=job_id,
             request_id=request.request_id,
             workflow_id=request.workflow_id,
-            status=JobStatus.CREATED.value,
+            status=JobStatus.PENDING.value,
+            current_step="PENDING",
+            progress=0.0,
+            human_action_required=False,
+            human_action_reason=None,
+            checkpoint=None,
             collection_request=request.model_dump(mode="json"),
             discovered_sources=[],
             selected_sources=[],
@@ -113,7 +118,7 @@ class CollectionService:
     ) -> CollectionResult:
         """
         Executes a collection job: discovers sources, selects sources, runs collection manager,
-        and records the outcome.
+        and records the outcome. Supports entering HUMAN_ACTION_REQUIRED when blocked by CAPTCHA.
         """
         job = await self.get_job(job_id=job_id, db=db)
         if not job:
@@ -123,13 +128,17 @@ class CollectionService:
         request = CollectionRequest.model_validate(req_data)
 
         # 1. Discovery stage
-        job.status = JobStatus.DISCOVERING.value
+        job.status = JobStatus.RUNNING.value
+        job.current_step = "SOURCE_DISCOVERY"
+        job.progress = 0.2
         discovered = await self.discover_sources(request)
         job.discovered_sources = [s.model_dump(mode="json") for s in discovered]
 
         # 2. Selection stage
         selected = self.select_sources(discovered, request)
         job.selected_sources = [s.model_dump(mode="json") for s in selected]
+        if selected:
+            job.source = selected[0].model_dump(mode="json")
 
         if db is not None:
             try:
@@ -138,7 +147,9 @@ class CollectionService:
                 await db.rollback()
 
         # 3. Execution stage
-        job.status = JobStatus.COLLECTING.value
+        job.status = JobStatus.RUNNING.value
+        job.current_step = "SOURCE_COLLECTION"
+        job.progress = 0.5
         job.started_at = datetime.now(timezone.utc)
         if db is not None:
             try:
@@ -151,13 +162,27 @@ class CollectionService:
             request=request,
             sources=selected,
             db=db,
+            job_id=job.id,
         )
 
         # 4. Finalize state
         job.status = result.status
-        job.completed_at = datetime.now(timezone.utc)
         job.errors = result.errors
         job.metadata_.update(result.metadata.model_dump())
+
+        if result.status == JobStatus.HUMAN_ACTION_REQUIRED.value:
+            job.human_action_required = True
+            job.human_action_reason = result.human_action_reason or "CAPTCHA_REQUIRED"
+            job.checkpoint = result.checkpoint
+            job.current_step = "HUMAN_ACTION_REQUIRED"
+            logger.info(f"CollectionJob '{job_id}' paused: HUMAN_ACTION_REQUIRED.")
+        else:
+            job.human_action_required = False
+            job.checkpoint = None
+            job.completed_at = datetime.now(timezone.utc)
+            job.current_step = "COMPLETED" if result.status == JobStatus.COMPLETED.value else "FAILED"
+            job.progress = 1.0 if result.status == JobStatus.COMPLETED.value else job.progress
+
         if result.errors:
             job.error = str(result.errors[0].get("error", "One or more collection errors occurred"))
 
@@ -170,6 +195,114 @@ class CollectionService:
                 await db.rollback()
 
         return result
+
+    async def resume_job(
+        self,
+        job_id: str,
+        db: Optional[AsyncSession] = None,
+    ) -> CollectionResult:
+        """
+        Resumes a paused CollectionJob from its safe checkpoint after human completes verification.
+        Only jobs in HUMAN_ACTION_REQUIRED state can be resumed.
+        """
+        job = await self.get_job(job_id=job_id, db=db)
+        if not job:
+            raise ValueError(f"CollectionJob with ID '{job_id}' not found.")
+
+        if job.status != JobStatus.HUMAN_ACTION_REQUIRED.value:
+            raise ValueError(
+                f"Cannot resume job '{job_id}' because its status is '{job.status}'. "
+                f"Only jobs in '{JobStatus.HUMAN_ACTION_REQUIRED.value}' state can be resumed."
+            )
+
+        # Transition to RESUMING
+        job.status = JobStatus.RESUMING.value
+        job.current_step = "RESUMING"
+        job.human_action_required = False
+        if db is not None:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+        checkpoint = job.checkpoint or {}
+        req_data = checkpoint.get("request") or job.collection_request
+        request = CollectionRequest.model_validate(req_data)
+
+        # Reconstruct sources to collect from checkpoint
+        resume_sources: List[SourceDefinition] = []
+        current_source_dict = checkpoint.get("current_source")
+        if current_source_dict:
+            resume_sources.append(SourceDefinition.model_validate(current_source_dict))
+
+        remaining_sources_dicts = checkpoint.get("remaining_sources", [])
+        for s_dict in remaining_sources_dicts:
+            resume_sources.append(SourceDefinition.model_validate(s_dict))
+
+        # If no sources recorded in checkpoint, fallback to selected_sources
+        if not resume_sources and job.selected_sources:
+            resume_sources = [SourceDefinition.model_validate(s) for s in job.selected_sources]
+
+        # Retrieve documents already collected for this job
+        existing_docs = await self.get_documents(job_id=job_id, limit=500, db=db)
+        existing_doc_refs = [doc.to_reference() for doc in existing_docs]
+
+        logger.info(
+            f"Resuming CollectionJob '{job_id}' with {len(existing_doc_refs)} existing docs "
+            f"and {len(resume_sources)} sources..."
+        )
+
+        job.status = JobStatus.RUNNING.value
+        job.current_step = "SOURCE_COLLECTION"
+        if db is not None:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+        result = await self.manager.execute_job(
+            request=request,
+            sources=resume_sources,
+            db=db,
+            job_id=job.id,
+            checkpoint=checkpoint,
+            initial_documents=existing_doc_refs,
+        )
+
+        # Update final state
+        job.status = result.status
+        job.errors = result.errors
+        job.metadata_.update(result.metadata.model_dump())
+
+        if result.status == JobStatus.HUMAN_ACTION_REQUIRED.value:
+            job.human_action_required = True
+            job.human_action_reason = result.human_action_reason or "CAPTCHA_REQUIRED"
+            job.checkpoint = result.checkpoint
+            job.current_step = "HUMAN_ACTION_REQUIRED"
+        elif result.status == JobStatus.COMPLETED.value:
+            job.human_action_required = False
+            job.checkpoint = None
+            job.completed_at = datetime.now(timezone.utc)
+            job.current_step = "COMPLETED"
+            job.progress = 1.0
+        else:
+            job.human_action_required = False
+            job.completed_at = datetime.now(timezone.utc)
+            job.current_step = "FAILED"
+
+        if result.errors:
+            job.error = str(result.errors[0].get("error", "One or more errors occurred"))
+
+        if db is not None:
+            try:
+                await db.commit()
+                await db.refresh(job)
+            except Exception as e:
+                logger.warning(f"Could not update resumed job in DB: {e}")
+                await db.rollback()
+
+        return result
+
 
     async def get_job(
         self,

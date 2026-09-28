@@ -69,6 +69,7 @@ class CollectionStepExecutor(BaseStepExecutor):
                 result = await self.service.manager.execute_job(
                     request=col_req,
                     sources=selected,
+                    job_id=job.id,
                 )
             else:
                 # Run full job including discovery
@@ -80,20 +81,29 @@ class CollectionStepExecutor(BaseStepExecutor):
             )
 
             is_success = result.status in ["COMPLETED", "PARTIAL_SUCCESS"]
+            is_human_action = result.status == "HUMAN_ACTION_REQUIRED"
 
             return StepResult(
                 success=is_success,
                 output=result.model_dump(mode="json"),
-                error=result.errors[0]["error"] if not is_success and result.errors else None,
+                error=(
+                    "Human action required: CAPTCHA encountered on source. Please complete verification and resume."
+                    if is_human_action
+                    else (result.errors[0]["error"] if not is_success and result.errors else None)
+                ),
                 metadata={
                     "is_mock": False,
                     "collector": "CollectionService",
+                    "job_id": job.id,
                     "documents_collected": len(result.documents),
                     "failed_urls": result.metadata.failed_urls,
                     "zyte_used_count": result.metadata.zyte_used_count,
                     "status": result.status,
+                    "human_action_required": is_human_action,
+                    "checkpoint": result.checkpoint if is_human_action else None,
                 },
             )
+
 
         except Exception as e:
             logger.error(f"CollectionStepExecutor failed: {e}", exc_info=True)

@@ -15,7 +15,22 @@ async def run_migrations():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            from sqlalchemy import text
+            alter_stmts = [
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS source JSON;",
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS current_step VARCHAR(64);",
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS progress DOUBLE PRECISION DEFAULT 0.0 NOT NULL;",
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS human_action_required BOOLEAN DEFAULT FALSE NOT NULL;",
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS human_action_reason VARCHAR(128);",
+                "ALTER TABLE collection_jobs ADD COLUMN IF NOT EXISTS checkpoint JSON;",
+            ]
+            for stmt in alter_stmts:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as ex:
+                    logger.debug(f"Column check notice: {ex}")
         logger.info("Successfully created/verified all tables: sources, collection_jobs, documents, workflows")
+
     except OSError as e:
         logger.error(
             f"Cannot connect to PostgreSQL at {settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT} ({e}).\n"

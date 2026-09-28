@@ -72,15 +72,23 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # AI / LLM Configuration
-    AI_PROVIDER: str = "gemini"
-    AI_MODEL: str = "gemini-2.5-flash"
+    AI_PROVIDER: str = "groq"
+    AI_MODEL: str = "llama-3.3-70b-versatile"
     AI_API_KEY: Union[str, None] = None
+    GROQ_API_KEY: Union[str, None] = None
     GEMINI_API_KEY: Union[str, None] = None
     AI_TIMEOUT_SECONDS: int = 30
 
     @property
     def effective_ai_api_key(self) -> Union[str, None]:
-        return self.AI_API_KEY or self.GEMINI_API_KEY or os.getenv("AI_API_KEY") or os.getenv("GEMINI_API_KEY")
+        return (
+            self.AI_API_KEY
+            or self.GROQ_API_KEY
+            or self.GEMINI_API_KEY
+            or os.getenv("AI_API_KEY")
+            or os.getenv("GROQ_API_KEY")
+            or os.getenv("GEMINI_API_KEY")
+        )
 
     # Source Collection Engine Configuration (Phase 4)
     DATAPILOT_HTTP_TIMEOUT: int = 20
@@ -91,6 +99,15 @@ class Settings(BaseSettings):
     DATAPILOT_MAX_DOCUMENT_SIZE_MB: int = 10
     ZYTE_API_KEY: Union[str, None] = None
     ZYTE_API_URL: str = "https://api.zyte.com/v1/extract"
+
+    # Human-in-the-Loop Notification / Email Configuration
+    DATAPILOT_AUTH_EMAIL: Union[str, None] = "client@datapilot.local"
+    SMTP_HOST: Union[str, None] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Union[str, None] = None
+    SMTP_PASSWORD: Union[str, None] = None
+    SMTP_FROM_EMAIL: str = "noreply@datapilot.local"
+    SMTP_USE_TLS: bool = True
 
 
 settings = Settings()

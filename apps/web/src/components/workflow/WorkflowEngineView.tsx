@@ -30,7 +30,9 @@ import {
   executeWorkflow,
   fetchWorkflowSteps,
   fetchWorkflowDefinition,
+  resumeCollectionJob,
 } from "@/lib/api";
+
 
 interface WorkflowEngineViewProps {
   initialWorkflow: WorkflowDefinition;
@@ -49,9 +51,28 @@ export function WorkflowEngineView({
     initialWorkflow.error || null
   );
   const [expandedStepIds, setExpandedStepIds] = useState<Record<string, boolean>>({});
+  const [isResuming, setIsResuming] = useState<boolean>(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
+  const handleResume = async (jobId: string) => {
+    setIsResuming(true);
+    try {
+      const res = await resumeCollectionJob(jobId);
+      if (res.ok) {
+        setIsExecuting(true);
+        startPolling(workflow.workflow_id);
+      } else {
+        alert(`Resume failed: ${res.data?.detail || res.error || "Unable to resume"}`);
+      }
+    } catch (err: any) {
+      alert(`Resume error: ${err.message}`);
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
   // Sync state if initialWorkflow prop changes
+
   useEffect(() => {
     setWorkflow(initialWorkflow);
     if (initialWorkflow.status === "RUNNING") {
@@ -157,6 +178,14 @@ export function WorkflowEngineView({
             RUNNING
           </span>
         );
+      case "HUMAN_ACTION_REQUIRED":
+      case "PAUSED":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 border border-amber-500/40 text-amber-400 animate-pulse">
+            <ShieldAlert className="w-3.5 h-3.5" />
+            HUMAN ACTION REQUIRED
+          </span>
+        );
       case "FAILED":
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-400">
@@ -193,6 +222,13 @@ export function WorkflowEngineView({
         return (
           <div className="w-7 h-7 rounded-full bg-sky-500/20 border-2 border-sky-400 text-sky-400 flex items-center justify-center shrink-0 animate-spin">
             <RefreshCw className="w-4 h-4" />
+          </div>
+        );
+      case "HUMAN_ACTION_REQUIRED":
+      case "PAUSED":
+        return (
+          <div className="w-7 h-7 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center shrink-0 animate-pulse">
+            <ShieldAlert className="w-4 h-4" />
           </div>
         );
       case "FAILED":
@@ -287,7 +323,7 @@ export function WorkflowEngineView({
           </div>
 
           {/* Execution Error Banner */}
-          {executionError && (
+          {executionError && !workflow.steps.some(s => s.status === "HUMAN_ACTION_REQUIRED" || s.metadata?.human_action_required) && (
             <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div>
@@ -299,8 +335,76 @@ export function WorkflowEngineView({
         </div>
       </Card>
 
+      {/* Human Action Required Notification Banner */}
+      {(() => {
+        const humanActionStep = workflow.steps.find(
+          (s) => s.metadata?.human_action_required || s.status === "HUMAN_ACTION_REQUIRED"
+        );
+        if (!humanActionStep) return null;
+        const checkpoint = humanActionStep.metadata?.checkpoint;
+        const jobId = humanActionStep.metadata?.job_id;
+
+        return (
+          <div className="p-6 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-amber-200 shadow-2xl space-y-4">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold uppercase tracking-wider">
+                    Human action required
+                  </div>
+                  <h3 className="text-lg font-bold text-white">
+                    DataPilot encountered a CAPTCHA on this source. We have paused the collection safely.
+                  </h3>
+                  <p className="text-sm text-amber-200/80">
+                    Please complete the CAPTCHA at the source, then return to DataPilot and click Resume.
+                  </p>
+                </div>
+              </div>
+
+              {jobId && (
+                <Button
+                  onClick={() => handleResume(jobId)}
+                  disabled={isResuming}
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0 shadow-lg shadow-amber-500/25 px-5"
+                >
+                  <Play className={`w-4 h-4 mr-2 ${isResuming ? "animate-spin" : "fill-current"}`} />
+                  {isResuming ? "Resuming..." : "Resume Collection"}
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-slate-950/70 rounded-xl border border-amber-500/20 text-xs font-mono">
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Source Name</span>
+                <span className="text-slate-200 font-semibold">{checkpoint?.source_name || "Protected Target"}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Source URL (Complete CAPTCHA)</span>
+                <a
+                  href={checkpoint?.source_url || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-400 hover:underline flex items-center gap-1 truncate"
+                >
+                  <span className="truncate">{checkpoint?.source_url || "N/A"}</span>
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                </a>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Task ID & Status</span>
+                <span className="text-amber-400 font-semibold">{jobId || humanActionStep.id} (HUMAN_ACTION_REQUIRED)</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Vertical Workflow Timeline */}
       <div className="space-y-3">
+
         <div className="flex items-center justify-between px-1">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
             <Layers className="w-4 h-4 text-sky-400" />

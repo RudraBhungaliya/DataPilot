@@ -26,6 +26,8 @@ class StepStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
+    PAUSED = "PAUSED"
+    HUMAN_ACTION_REQUIRED = "HUMAN_ACTION_REQUIRED"
 
 
 class StepType(str, Enum):

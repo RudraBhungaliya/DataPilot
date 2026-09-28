@@ -33,13 +33,19 @@ class SourceStatus(str, Enum):
 
 
 class JobStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    HUMAN_ACTION_REQUIRED = "HUMAN_ACTION_REQUIRED"
+    RESUMING = "RESUMING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    # Legacy aliases
     CREATED = "CREATED"
     DISCOVERING = "DISCOVERING"
     COLLECTING = "COLLECTING"
-    COMPLETED = "COMPLETED"
     PARTIAL_SUCCESS = "PARTIAL_SUCCESS"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
 
 
 class RateLimitConfig(BaseModel):
@@ -119,6 +125,7 @@ class CollectionStrategy(BaseModel):
     allow_public_datasets: bool = True
     allow_rss: bool = True
     allow_zyte: bool = True
+    human_action_on_captcha: bool = True
 
 
 class CollectionLimits(BaseModel):
@@ -216,10 +223,13 @@ class CollectionResult(BaseModel):
     """
     job_id: str
     request_id: str
-    status: str  # COMPLETED, PARTIAL_SUCCESS, FAILED
+    status: str  # COMPLETED, HUMAN_ACTION_REQUIRED, FAILED, etc.
     documents: List[DocumentReference] = Field(default_factory=list)
     metadata: CollectionMetadata = Field(default_factory=CollectionMetadata)
     errors: List[Dict[str, Any]] = Field(default_factory=list)
+    checkpoint: Optional[Dict[str, Any]] = None
+    human_action_required: bool = False
+    human_action_reason: Optional[str] = None
 
 
 class RawDocument(BaseModel):

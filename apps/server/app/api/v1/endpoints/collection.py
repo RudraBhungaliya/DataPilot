@@ -138,7 +138,7 @@ async def get_collection_job(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Returns collection job lifecycle state, duration, document counts, and error reports.
+    Returns collection job lifecycle state, duration, document counts, and human action status.
     """
     job = await collection_service.get_job(job_id=job_id, db=db)
     if not job:
@@ -148,19 +148,69 @@ async def get_collection_job(
         )
 
     return {
+        "id": job.id,
         "job_id": job.id,
         "request_id": job.request_id,
         "workflow_id": job.workflow_id,
         "status": job.status,
+        "source": job.source,
+        "progress": job.progress,
+        "current_step": job.current_step,
+        "human_action_required": job.human_action_required,
+        "human_action_reason": job.human_action_reason,
+        "checkpoint": job.checkpoint,
         "collection_request": job.collection_request,
         "discovered_sources": job.discovered_sources,
         "selected_sources": job.selected_sources,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "created_at": job.created_at.isoformat() if hasattr(job, "created_at") and job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if hasattr(job, "updated_at") and job.updated_at else None,
         "metadata": job.metadata_,
         "error": job.error,
         "errors": job.errors,
     }
+
+
+@router.post(
+    "/jobs/{job_id}/resume",
+    response_model=CollectionResult,
+    summary="Resume a collection job paused for human intervention",
+    status_code=status.HTTP_200_OK,
+)
+async def resume_collection_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> CollectionResult:
+    """
+    Resumes a collection job that is in HUMAN_ACTION_REQUIRED status from its safe checkpoint.
+    """
+    job = await collection_service.get_job(job_id=job_id, db=db)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CollectionJob '{job_id}' not found.",
+        )
+
+    if job.status != "HUMAN_ACTION_REQUIRED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Cannot resume job '{job_id}' with status '{job.status}'. "
+                "Only jobs in 'HUMAN_ACTION_REQUIRED' status can be resumed."
+            ),
+        )
+
+    try:
+        result = await collection_service.resume_job(job_id=job_id, db=db)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to resume collection job {job_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume collection job: {str(e)}",
+        )
+
 
 
 @router.get(

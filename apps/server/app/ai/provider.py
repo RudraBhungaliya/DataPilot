@@ -237,17 +237,122 @@ class MockProvider(LLMProvider):
         }
 
 
+class GroqProvider(LLMProvider):
+    """
+    Groq LLM Provider Implementation.
+    Uses Groq's high-speed inference API with Llama models
+    (e.g., llama-3.3-70b-versatile, llama-3.1-8b-instant).
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        self.api_key = api_key if api_key is not None else settings.effective_ai_api_key
+        self.model = model or settings.AI_MODEL or "openai/gpt-oss-120b"
+        self.timeout = float(settings.AI_TIMEOUT_SECONDS or 30)
+
+    async def generate_json(
+        self,
+        prompt: str,
+        system_prompt: str,
+        temperature: float = 0.1,
+    ) -> Dict[str, Any]:
+        if not self.api_key:
+            raise LLMAuthenticationError(
+                "Groq API key is not configured. Please provide AI_API_KEY or GROQ_API_KEY in environment variables."
+            )
+
+        # Groq json_object mode requires the word 'json' in prompt or system message
+        effective_system_prompt = system_prompt
+        if "json" not in system_prompt.lower() and "json" not in prompt.lower():
+            effective_system_prompt = f"{system_prompt}\nRespond strictly with a valid JSON object."
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": temperature,
+        }
+
+        models_to_try = [self.model]
+        for candidate in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "llama-3.1-8b-instant"]:
+            if candidate not in models_to_try:
+                models_to_try.append(candidate)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                last_error = None
+                for current_model in models_to_try:
+                    payload["model"] = current_model
+                    response = await client.post(url, headers=headers, json=payload)
+
+                    if response.status_code in (401, 403):
+                        raise LLMAuthenticationError("Invalid or unauthorized Groq API key provided.")
+                    elif response.status_code == 429:
+                        raise LLMError("Rate limit exceeded for Groq API. Please retry in a few moments.")
+                    elif response.status_code == 404:
+                        # Model not available on this tier/region, try next model
+                        logger.warning(f"Groq model '{current_model}' not found (404), falling back to alternative...")
+                        last_error = f"Groq API error status {response.status_code} on {current_model}."
+                        continue
+                    elif response.status_code != 200:
+                        raise LLMError(f"Groq API error status {response.status_code}: {response.text[:150]}")
+
+                    data = response.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        raise LLMInvalidResponseError("Groq returned no completion choices.")
+
+                    raw_text = choices[0].get("message", {}).get("content", "")
+                    if not raw_text:
+                        raise LLMInvalidResponseError("Groq response did not contain message content.")
+
+                    return self._parse_json_text(raw_text)
+
+                raise LLMError(last_error or "No available Groq models responded successfully.")
+
+        except httpx.TimeoutException:
+            raise LLMTimeoutError("Groq API request timed out.")
+        except httpx.RequestError as exc:
+            raise LLMError(f"Network error connecting to Groq: {type(exc).__name__}")
+
+    def _parse_json_text(self, text: str) -> Dict[str, Any]:
+        """Extract and parse JSON from model output text."""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as err:
+            logger.error(f"Failed to decode JSON from Groq output: {err}. Raw text: {text[:200]}")
+            raise LLMInvalidResponseError(f"LLM produced malformed JSON: {err.msg}")
+
+
 def get_llm_provider(provider_type: Optional[str] = None) -> LLMProvider:
     """
     Factory function to retrieve configured LLM Provider.
-    Supported: 'gemini', 'mock'.
+    Supported: 'groq', 'llama', 'gemini', 'mock'.
     """
-    provider_name = (provider_type or settings.AI_PROVIDER or "gemini").strip().lower()
+    provider_name = (provider_type or settings.AI_PROVIDER or "groq").strip().lower()
 
     if provider_name == "mock":
         return MockProvider()
+    elif provider_name in ("groq", "llama"):
+        return GroqProvider()
     elif provider_name == "gemini":
         return GeminiProvider()
     else:
-        logger.warning(f"Unknown AI_PROVIDER '{provider_name}', defaulting to GeminiProvider.")
-        return GeminiProvider()
+        logger.warning(f"Unknown AI_PROVIDER '{provider_name}', defaulting to GroqProvider.")
+        return GroqProvider()
