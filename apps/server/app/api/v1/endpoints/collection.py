@@ -15,6 +15,8 @@ from app.collection.schemas import (
     RawDocument,
 )
 from app.collection.dependencies import get_collection_service
+from app.api.v1.endpoints.jobs import JobSubmitResponse
+from app.jobs.service import get_job_service
 from app.db.session import get_db
 from app.core.logger import logger
 
@@ -188,6 +190,30 @@ async def list_recent_documents(
         if doc.content and len(doc.content) > preview_limit:
             doc.content = doc.content[:preview_limit]
     return docs
+
+
+@router.post(
+    "/jobs/{job_id}/execute-async",
+    response_model=JobSubmitResponse,
+    summary="Execute a collection job in the background",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def execute_collection_job_async(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> JobSubmitResponse:
+    """
+    Queues a collection job on the background worker and returns a job handle.
+    Poll GET /api/v1/jobs/{job_id} for status and results.
+    """
+    job = await collection_service.get_job(job_id=job_id, db=db)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CollectionJob '{job_id}' not found.",
+        )
+    task = await get_job_service().submit("collection.execute", {"collection_job_id": job_id})
+    return JobSubmitResponse(id=task.id, kind=task.kind, status=task.status)
 
 
 @router.get(

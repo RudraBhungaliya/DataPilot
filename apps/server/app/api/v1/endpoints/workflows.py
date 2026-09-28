@@ -24,6 +24,8 @@ from app.workflows.schemas import (
 )
 from app.workflows.validator import WorkflowValidationError
 from app.services.workflow import WorkflowService, WorkflowStateError
+from app.api.v1.endpoints.jobs import JobSubmitResponse
+from app.jobs.service import get_job_service
 from app.db.session import get_db
 from app.core.logger import logger
 
@@ -279,6 +281,30 @@ async def get_workflow_steps(
         status=workflow_def.status,
         steps=workflow_def.steps,
     )
+
+
+@router.post(
+    "/{workflow_id}/execute-async",
+    response_model=JobSubmitResponse,
+    summary="Execute a workflow in the background",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def execute_workflow_async(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> JobSubmitResponse:
+    """
+    Queues a workflow execution on the background worker and returns a job handle.
+    Poll GET /api/v1/jobs/{job_id} for status and results.
+    """
+    record = await workflow_service.get_workflow_by_id(workflow_id=workflow_id, db=db)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with ID '{workflow_id}' not found.",
+        )
+    job = await get_job_service().submit("workflow.execute", {"workflow_id": workflow_id})
+    return JobSubmitResponse(id=job.id, kind=job.kind, status=job.status)
 
 
 # ---------------------------------------------------------------------------

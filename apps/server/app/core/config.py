@@ -127,5 +127,14 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "noreply@datapilot.local"
     SMTP_USE_TLS: bool = True
 
+    # Phase 7: Security / Production
+    AUTH_ENABLED: bool = False  # enable API-key auth (turn on in production)
+    BOOTSTRAP_API_KEY: Union[str, None] = None  # admin key for first-run key provisioning
+    RATE_LIMIT_PER_MINUTE: int = 0  # 0 disables rate limiting
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RUN_EMBEDDED_WORKER: bool = True  # run the background job worker in-process
+    WORKER_CONCURRENCY: int = 2
+    METRICS_ENABLED: bool = True
+
 
 settings = Settings()
