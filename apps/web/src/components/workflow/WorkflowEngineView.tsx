@@ -342,6 +342,14 @@ export function WorkflowEngineView({
             </span>
           </div>
 
+          {/* Adaptive planning notes */}
+          {Array.isArray(workflow.metadata?.planning_notes) && workflow.metadata.planning_notes.length > 0 && (
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-[11px] text-slate-400">
+              <span className="font-semibold text-slate-300">Why this plan:</span>{" "}
+              {workflow.metadata.planning_notes.join(" · ")}
+            </div>
+          )}
+
           {/* Execution Error Banner */}
           {executionError && !workflow.steps.some(s => s.status === "HUMAN_ACTION_REQUIRED" || s.metadata?.human_action_required) && (
             <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-start gap-2.5">

@@ -713,6 +713,8 @@ export interface BackgroundJob {
   payload?: Record<string, any>;
   result?: Record<string, any> | null;
   error?: string | null;
+  progress?: number;
+  cancel_requested?: boolean;
   created_at?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
@@ -800,6 +802,121 @@ export async function createApiKey(
 export async function revokeApiKey(keyId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/auth/keys/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grounding (data availability) + job controls + schedules
+// ---------------------------------------------------------------------------
+
+export interface FieldAvailability {
+  field: string;
+  status: string;
+  reason: string;
+  sources: string[];
+}
+
+export interface AvailabilityResponse {
+  entity: string;
+  sources_discovered: number;
+  obtainable: string[];
+  unknown: string[];
+  availability: FieldAvailability[];
+}
+
+export async function checkAvailability(params: {
+  entity: string;
+  required_fields: string[];
+  source_preferences?: string[];
+  constraints?: Record<string, any>;
+}): Promise<AvailabilityResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/availability`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function retryJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/retry`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export interface ScheduleRecord {
+  id: string;
+  name: string;
+  kind: string;
+  target_id: string;
+  interval_seconds: number;
+  enabled: boolean;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at?: string | null;
+}
+
+export async function fetchSchedules(): Promise<ScheduleRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules`, { cache: 'no-store', headers: authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createSchedule(params: {
+  name: string;
+  kind: string;
+  target_id: string;
+  interval_seconds: number;
+}): Promise<ScheduleRecord | null> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteSchedule(scheduleId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/schedules/${encodeURIComponent(scheduleId)}`, {
       method: 'DELETE',
       headers: { ...authHeaders() },
     });
