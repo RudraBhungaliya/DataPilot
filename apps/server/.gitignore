@@ -89,3 +89,6 @@ temp/
 .DS_Store
 .idea/
 .vscode/
+
+# Runtime data artifacts (exports, caches)
+storage/
