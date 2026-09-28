@@ -1,6 +1,7 @@
 """
 Workflow Execution Engine.
 Executes DAG workflows according to dependency graph order with state tracking.
+Supports pausing for human intervention and resuming from the paused step.
 """
 
 from typing import Optional, Callable, Awaitable, Dict, Any, List
@@ -30,7 +31,10 @@ class WorkflowEngine:
         on_step_update: Optional[StepCallback] = None,
     ) -> WorkflowDefinition:
         """
-        Executes a workflow definition across its dependency graph.
+        Executes (or resumes) a workflow definition across its dependency graph.
+
+        Steps already marked COMPLETED are skipped and their outputs are re-used,
+        which lets a PAUSED workflow continue from where it stopped.
 
         :param workflow: The WorkflowDefinition to run
         :param on_step_update: Optional async callback invoked on step state transitions
@@ -58,6 +62,11 @@ class WorkflowEngine:
             metadata={"started_at": workflow.updated_at},
         )
 
+        # Re-hydrate outputs of steps that already completed (resume support)
+        for step in workflow.steps:
+            if step.status == StepStatus.COMPLETED and step.output is not None:
+                context.step_outputs[step.id] = step.output
+
         logger.info(
             f"Starting workflow execution: {workflow.workflow_id} "
             f"({len(workflow.steps)} steps, order: {' -> '.join(execution_order)})"
@@ -65,10 +74,15 @@ class WorkflowEngine:
 
         failed = False
         failed_step_id: Optional[str] = None
+        paused_step_id: Optional[str] = None
 
         # 3. Execute steps in topological dependency order
         for step_id in execution_order:
             step = step_map[step_id]
+
+            # Already-completed steps (resume) are skipped, outputs preloaded above
+            if step.status == StepStatus.COMPLETED:
+                continue
 
             if failed:
                 # Upstream failure: skip remaining dependent steps
@@ -133,23 +147,29 @@ class WorkflowEngine:
                     # Record output into context for subsequent steps
                     context.step_outputs[step.id] = result.output
                     logger.info(f"Step '{step.name}' ({step.id}) completed successfully in {duration_ms}ms")
+                elif result.metadata.get("human_action_required"):
+                    # Pause safely for human intervention; leave remaining steps PENDING
+                    step.status = StepStatus.HUMAN_ACTION_REQUIRED
+                    step.error = result.error or "Human action required: CAPTCHA encountered on source."
+                    step.metadata.update(result.metadata)
+                    step.metadata["duration_ms"] = duration_ms
+                    workflow.status = WorkflowStatus.PAUSED
+                    paused_step_id = step.id
+                    logger.info(
+                        f"Step '{step.name}' ({step.id}) paused safely for human action (CAPTCHA detected)"
+                    )
+                    if on_step_update:
+                        await on_step_update(workflow, step)
+                    break
                 else:
-                    if result.metadata.get("human_action_required"):
-                        step.status = StepStatus.HUMAN_ACTION_REQUIRED
-                        step.error = result.error or "Human action required: CAPTCHA encountered on source."
-                        step.metadata.update(result.metadata)
-                        workflow.status = WorkflowStatus.PAUSED
-                        logger.info(f"Step '{step.name}' ({step.id}) paused safely for human action (CAPTCHA detected)")
-                    else:
-                        step.status = StepStatus.FAILED
-                        step.error = result.error or "Step executor returned failure without message."
-                        step.metadata.update(result.metadata)
-                        workflow.status = WorkflowStatus.FAILED
-                        workflow.error = f"Step '{step.name}' failed: {step.error}"
-                        logger.warning(f"Step '{step.name}' ({step.id}) failed: {step.error}")
-
+                    step.status = StepStatus.FAILED
+                    step.error = result.error or "Step executor returned failure without message."
+                    step.metadata.update(result.metadata)
+                    workflow.status = WorkflowStatus.FAILED
+                    workflow.error = f"Step '{step.name}' failed: {step.error}"
                     failed = True
                     failed_step_id = step.id
+                    logger.warning(f"Step '{step.name}' ({step.id}) failed: {step.error}")
 
             except Exception as exec_err:
                 step.status = StepStatus.FAILED
@@ -164,7 +184,12 @@ class WorkflowEngine:
                 await on_step_update(workflow, step)
 
         # 4. Finalize overall workflow status
-        if not failed:
+        if paused_step_id is not None:
+            workflow.status = WorkflowStatus.PAUSED
+            logger.info(
+                f"Workflow '{workflow.workflow_id}' paused at step '{paused_step_id}' awaiting human action."
+            )
+        elif not failed:
             workflow.status = WorkflowStatus.COMPLETED
             workflow.error = None
             logger.info(f"Workflow '{workflow.workflow_id}' completed all steps successfully.")

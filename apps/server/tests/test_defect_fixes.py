@@ -37,6 +37,7 @@ from app.collection.collectors.api import APICollector
 from app.collection.policies import SourceAccessPolicy
 from app.collection.management.cache import DocumentCache
 from app.core.config import settings
+from app.ai.schemas import StructuredRequirement
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +228,175 @@ async def test_cache_hit_when_base_url_differs_from_canonical():
 
     assert await cache.get("https://example.com/page?ref=1") is not None
     assert await cache.get("https://example.com/page") is not None
+
+
+# ---------------------------------------------------------------------------
+# 7. Workflow human-in-the-loop pause & resume
+# ---------------------------------------------------------------------------
+
+def _flaky_registry():
+    """Registry whose COLLECT_DATA pauses for human action once, then succeeds."""
+    from app.workflows.registry import get_mock_registry
+    from app.workflows.types import StepType
+    from app.workflows.executors.base import BaseStepExecutor, StepResult
+
+    state = {"calls": 0}
+
+    class FlakyCollector(BaseStepExecutor):
+        async def execute(self, step, context):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                return StepResult(
+                    success=False,
+                    error="CAPTCHA encountered",
+                    metadata={"human_action_required": True, "job_id": "job_paused_1"},
+                )
+            return StepResult(success=True, output={"is_mock": False}, metadata={"job_id": "job_paused_1"})
+
+    registry = get_mock_registry()
+    registry.register(StepType.COLLECT_DATA, FlakyCollector())
+    return registry, state
+
+
+@pytest.mark.asyncio
+async def test_engine_pause_leaves_downstream_pending_then_resumes():
+    from app.workflows.engine import WorkflowEngine
+    from app.workflows.planner import WorkflowPlanner
+    from app.workflows.types import StepType, StepStatus, WorkflowStatus
+
+    registry, state = _flaky_registry()
+    req = StructuredRequirement(objective="x", entity="startup", required_fields=["name"])
+    wf = WorkflowPlanner().plan(requirement=req)
+    engine = WorkflowEngine(registry=registry)
+
+    wf = await engine.execute(wf)
+    assert wf.status == WorkflowStatus.PAUSED
+    collect_step = [s for s in wf.steps if s.type == StepType.COLLECT_DATA][0]
+    extract_step = [s for s in wf.steps if s.type == StepType.EXTRACT_DATA][0]
+    assert collect_step.status == StepStatus.HUMAN_ACTION_REQUIRED
+    # Downstream must remain PENDING (resumable), not SKIPPED
+    assert extract_step.status == StepStatus.PENDING
+
+    # Resume by resetting the paused step and re-running the engine
+    collect_step.status = StepStatus.PENDING
+    wf = await engine.execute(wf)
+    assert wf.status == WorkflowStatus.COMPLETED
+    assert state["calls"] == 2
+    assert all(s.status == StepStatus.COMPLETED for s in wf.steps)
+
+
+def test_api_resume_requires_paused_state():
+    """Resuming a workflow that is not paused returns 409; unknown id returns 404."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    plan = client.post(
+        "/api/v1/workflows/plan",
+        json={
+            "requirement": {
+                "objective": "Find AI startups",
+                "entity": "startup",
+                "required_fields": ["company_name"],
+                "output_format": "table",
+            }
+        },
+    )
+    assert plan.status_code == 200
+    workflow_id = plan.json()["workflow"]["workflow_id"]
+
+    resume_res = client.post(f"/api/v1/workflows/{workflow_id}/resume")
+    assert resume_res.status_code == 409
+
+    missing_res = client.post("/api/v1/workflows/does-not-exist/resume")
+    assert missing_res.status_code == 404
+
+
+def test_api_workflow_execute_pause_then_resume():
+    """Full API round-trip: execute -> PAUSED -> resume -> COMPLETED."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.api.v1.endpoints.workflows import workflow_service
+    from app.workflows.engine import WorkflowEngine
+
+    client = TestClient(app)
+    registry, _ = _flaky_registry()
+
+    with patch.object(workflow_service, "engine", WorkflowEngine(registry=registry)):
+        plan = client.post(
+            "/api/v1/workflows/plan",
+            json={
+                "requirement": {
+                    "objective": "Find AI startups",
+                    "entity": "startup",
+                    "required_fields": ["company_name"],
+                    "output_format": "table",
+                }
+            },
+        )
+        workflow_id = plan.json()["workflow"]["workflow_id"]
+
+        exec_res = client.post(f"/api/v1/workflows/{workflow_id}/execute")
+        assert exec_res.status_code == 200
+        assert exec_res.json()["workflow"]["status"] == "PAUSED"
+
+        # Re-executing a paused workflow is rejected to prevent duplicate runs
+        conflict = client.post(f"/api/v1/workflows/{workflow_id}/execute")
+        assert conflict.status_code == 409
+
+        resume_res = client.post(f"/api/v1/workflows/{workflow_id}/resume")
+        assert resume_res.status_code == 200
+        assert resume_res.json()["workflow"]["status"] == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_collection_executor_resumes_existing_job():
+    """COLLECT_DATA resumes the paused collection job instead of creating a new one."""
+    from app.workflows.executors.collection import CollectionStepExecutor
+    from app.workflows.schemas import WorkflowStep
+    from app.workflows.executors.base import ExecutionContext
+    from app.workflows.types import StepType
+    from app.collection.schemas import CollectionResult
+
+    class FakeJob:
+        status = JobStatus.HUMAN_ACTION_REQUIRED.value
+
+    class FakeService:
+        def __init__(self):
+            self.resumed = []
+            self.created = 0
+
+        async def get_job(self, job_id):
+            return FakeJob()
+
+        async def resume_job(self, job_id):
+            self.resumed.append(job_id)
+            return CollectionResult(
+                job_id=job_id, request_id="r", status=JobStatus.COMPLETED.value, documents=[]
+            )
+
+        async def create_job(self, request):
+            self.created += 1
+            raise AssertionError("create_job must not be called on resume")
+
+    service = FakeService()
+    executor = CollectionStepExecutor(service=service)
+    step = WorkflowStep(
+        id="step_2",
+        name="Collect",
+        type=StepType.COLLECT_DATA,
+        description="d",
+        order=2,
+        depends_on=[],
+        config={},
+        metadata={"job_id": "job_paused", "human_action_required": True},
+    )
+    req = StructuredRequirement(objective="x", entity="startup", required_fields=["name"])
+    context = ExecutionContext(workflow_id="wf", input_requirement=req)
+
+    result = await executor.execute(step=step, context=context)
+    assert result.success is True
+    assert service.resumed == ["job_paused"]
+    assert service.created == 0
+    assert step.metadata["human_action_required"] is False
+

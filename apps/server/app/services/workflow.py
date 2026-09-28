@@ -17,11 +17,15 @@ from app.workflows.registry import ExecutorRegistry, get_default_registry
 from app.core.logger import logger
 
 
+class WorkflowStateError(Exception):
+    """Raised when a workflow operation is invalid for its current lifecycle state."""
+    pass
+
+
 class WorkflowService:
     """
     Business service layer managing workflow parsing, planning, validation, execution, and persistence.
     """
-
     def __init__(
         self,
         parser: Optional[RequirementParser] = None,
@@ -118,6 +122,45 @@ class WorkflowService:
 
         return workflow_def
 
+    async def _run_and_persist(
+        self,
+        record: Workflow,
+        workflow_def: WorkflowDefinition,
+        db: AsyncSession,
+    ) -> WorkflowDefinition:
+        """Executes a workflow definition and persists progress and final state."""
+        # Callback to save intermediate step changes to database
+        async def on_step_update(wf: WorkflowDefinition, step: WorkflowStep) -> None:
+            try:
+                record.status = wf.status.value
+                record.workflow_definition = wf.model_dump(mode="json")
+                if wf.error:
+                    record.error = wf.error
+                await db.commit()
+            except Exception as persist_err:
+                logger.warning(f"Failed to persist intermediate step update for {step.id}: {persist_err}")
+                await db.rollback()
+
+        executed_def = await self.engine.execute(
+            workflow=workflow_def,
+            on_step_update=on_step_update,
+        )
+
+        # Final persistence
+        try:
+            record.status = executed_def.status.value
+            record.workflow_definition = executed_def.model_dump(mode="json")
+            record.error = executed_def.error
+            record.execution_metadata = executed_def.metadata
+            await db.commit()
+            await db.refresh(record)
+            logger.info(f"Workflow '{record.id}' execution saved with status {record.status}.")
+        except Exception as e:
+            logger.error(f"Failed to save workflow state for '{record.id}': {e}")
+            await db.rollback()
+
+        return executed_def
+
     async def execute_workflow(
         self,
         workflow_id: str,
@@ -130,6 +173,13 @@ class WorkflowService:
         record = await self.get_workflow_by_id(workflow_id=workflow_id, db=db)
         if not record:
             raise ValueError(f"Workflow with ID '{workflow_id}' not found.")
+
+        if record.status == WorkflowStatus.RUNNING.value:
+            raise WorkflowStateError(f"Workflow '{workflow_id}' is already running.")
+        if record.status == WorkflowStatus.PAUSED.value:
+            raise WorkflowStateError(
+                f"Workflow '{workflow_id}' is paused awaiting human action. Resume it instead of re-executing."
+            )
 
         # Reconstruct WorkflowDefinition
         if record.workflow_definition:
@@ -144,38 +194,46 @@ class WorkflowService:
         else:
             raise ValueError(f"Workflow '{workflow_id}' does not have a requirement or workflow definition.")
 
-        # Callback to save intermediate step changes to database
-        async def on_step_update(wf: WorkflowDefinition, step: WorkflowStep) -> None:
-            try:
-                record.status = wf.status.value
-                record.workflow_definition = wf.model_dump(mode="json")
-                if wf.error:
-                    record.error = wf.error
-                await db.commit()
-            except Exception as persist_err:
-                logger.warning(f"Failed to persist intermediate step update for {step.id}: {persist_err}")
-                await db.rollback()
+        return await self._run_and_persist(record, workflow_def, db)
 
-        # Execute using WorkflowEngine
-        executed_def = await self.engine.execute(
-            workflow=workflow_def,
-            on_step_update=on_step_update,
-        )
+    async def resume_workflow(
+        self,
+        workflow_id: str,
+        db: AsyncSession,
+    ) -> WorkflowDefinition:
+        """
+        Resumes a workflow that was paused for human intervention.
 
-        # Final persistence
-        try:
-            record.status = executed_def.status.value
-            record.workflow_definition = executed_def.model_dump(mode="json")
-            record.error = executed_def.error
-            record.execution_metadata = executed_def.metadata
-            await db.commit()
-            await db.refresh(record)
-            logger.info(f"Workflow '{workflow_id}' execution saved with status {record.status}.")
-        except Exception as e:
-            logger.error(f"Failed to save completed workflow state for '{workflow_id}': {e}")
-            await db.rollback()
+        Resets the paused step so the engine re-runs it and continues with the
+        remaining (still PENDING) steps.
+        """
+        record = await self.get_workflow_by_id(workflow_id=workflow_id, db=db)
+        if not record:
+            raise ValueError(f"Workflow with ID '{workflow_id}' not found.")
 
-        return executed_def
+        if not record.workflow_definition:
+            raise WorkflowStateError(f"Workflow '{workflow_id}' has no planned definition to resume.")
+        if record.status != WorkflowStatus.PAUSED.value:
+            raise WorkflowStateError(
+                f"Workflow '{workflow_id}' is not paused (current status: {record.status})."
+            )
+
+        workflow_def = WorkflowDefinition.model_validate(record.workflow_definition)
+
+        # Reset paused step(s) so the engine re-executes them
+        reset_any = False
+        for step in workflow_def.steps:
+            if step.status == StepStatus.HUMAN_ACTION_REQUIRED:
+                step.status = StepStatus.PENDING
+                step.error = None
+                reset_any = True
+        if not reset_any:
+            logger.warning(f"Workflow '{workflow_id}' had no HUMAN_ACTION_REQUIRED step to reset.")
+
+        workflow_def.status = WorkflowStatus.PLANNED
+        record.error = None
+        logger.info(f"Resuming workflow '{workflow_id}' from step state.")
+        return await self._run_and_persist(record, workflow_def, db)
 
     async def get_workflow(
         self,

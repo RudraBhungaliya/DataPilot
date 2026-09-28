@@ -23,7 +23,7 @@ from app.workflows.schemas import (
     WorkflowStepsResponse,
 )
 from app.workflows.validator import WorkflowValidationError
-from app.services.workflow import WorkflowService
+from app.services.workflow import WorkflowService, WorkflowStateError
 from app.db.session import get_db
 from app.core.logger import logger
 
@@ -185,6 +185,12 @@ async def execute_workflow(
             workflow=executed_def,
             error=executed_def.error,
         )
+    except WorkflowStateError as se:
+        logger.warning(f"Workflow execution state conflict: {se}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(se),
+        )
     except ValueError as ve:
         logger.warning(f"Workflow execution not found or invalid: {ve}")
         raise HTTPException(
@@ -196,6 +202,45 @@ async def execute_workflow(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Workflow execution failed: {str(e)}",
+        )
+
+
+@router.post(
+    "/{workflow_id}/resume",
+    response_model=ExecuteWorkflowResponse,
+    summary="Resume a workflow paused for human action",
+    status_code=status.HTTP_200_OK,
+)
+async def resume_workflow(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ExecuteWorkflowResponse:
+    """
+    Resumes a PAUSED workflow after the human completes the required action
+    (e.g. a CAPTCHA), continuing from the paused step instead of restarting.
+    """
+    try:
+        resumed_def = await workflow_service.resume_workflow(workflow_id=workflow_id, db=db)
+        return ExecuteWorkflowResponse(
+            success=True,
+            workflow=resumed_def,
+            error=resumed_def.error,
+        )
+    except WorkflowStateError as se:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(se),
+        )
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(ve),
+        )
+    except Exception as e:
+        logger.error(f"Workflow resume failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Workflow resume failed: {str(e)}",
         )
 
 
