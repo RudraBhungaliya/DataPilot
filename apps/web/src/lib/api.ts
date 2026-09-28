@@ -522,5 +522,84 @@ export async function resumeWorkflow(workflowId: string): Promise<ExecuteWorkflo
   }
 }
 
+// ============================================================================
+// Phase 5: Data Intelligence Pipeline - Datasets
+// ============================================================================
+
+export interface DatasetSummary {
+  id: string;
+  workflow_id?: string | null;
+  name: string;
+  entity: string;
+  description?: string | null;
+  schema_fields: string[];
+  output_format: string;
+  status: string;
+  record_count: number;
+  valid_count: number;
+  duplicate_count: number;
+  metadata?: Record<string, any>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DatasetRecord {
+  record_id: string;
+  entity: string;
+  data: Record<string, any>;
+  source_document_id?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  extraction_method: string;
+  confidence: number;
+  is_valid: boolean;
+  validation_errors: string[];
+  dedupe_key?: string | null;
+  is_duplicate: boolean;
+}
+
+export async function fetchDatasets(): Promise<DatasetSummary[]> {
+  try {
+    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchDataset(datasetId: string): Promise<DatasetSummary | null> {
+  try {
+    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchDatasetRecords(
+  datasetId: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ total: number; records: DatasetRecord[] }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?limit=${limit}&offset=${offset}`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return { total: 0, records: [] };
+    const data = await res.json();
+    return { total: data.total ?? 0, records: data.records ?? [] };
+  } catch {
+    return { total: 0, records: [] };
+  }
+}
+
+export function datasetExportUrl(datasetId: string, format: 'csv' | 'json'): string {
+  return `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/export/${format}`;
+}
+
+
 
 
