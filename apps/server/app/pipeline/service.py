@@ -75,6 +75,50 @@ class DataPipelineService:
         await self.store.update_records(workflow_id, records, db=db)
         return PipelineStats(records_evaluated=len(records), records_normalized=count)
 
+    async def enrich(
+        self,
+        workflow_id: str,
+        required_fields: List[str],
+        db: Optional[AsyncSession] = None,
+    ) -> PipelineStats:
+        """
+        Attempts to fill missing fields by a focused second-pass extraction over the
+        record's own source document. Bounded, and never invents values.
+        """
+        records = await self.store.list_records(workflow_id, db=db)
+        from app.collection.dependencies import get_collection_service
+
+        collection = get_collection_service()
+        enriched = 0
+        for record in records:
+            missing = [f for f in (required_fields or []) if record.data.get(f) in (None, "", [], {})]
+            if not missing or not record.source_document_id:
+                continue
+            document = await collection.get_document(record.source_document_id, db=db)
+            if document is None or not document.content:
+                continue
+            try:
+                filled = await self.extractor.llm_extractor.extract(document.content, record.entity, missing)
+            except Exception as e:
+                logger.debug(f"Enrichment extraction failed for {record.record_id}: {e}")
+                continue
+            if not filled:
+                continue
+            candidate = filled[0].data or {}
+            changed = False
+            for field in missing:
+                value = candidate.get(field)
+                if value not in (None, "", [], {}):
+                    record.data[field] = value
+                    changed = True
+            if changed:
+                enriched += 1
+
+        if enriched:
+            await self.store.update_records(workflow_id, records, db=db)
+        logger.info(f"Enrichment filled missing fields on {enriched}/{len(records)} records (workflow {workflow_id})")
+        return PipelineStats(records_evaluated=len(records), records_enriched=enriched)
+
     async def validate(
         self,
         workflow_id: str,

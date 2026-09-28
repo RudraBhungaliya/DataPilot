@@ -55,19 +55,32 @@ class SourceDiscovery:
             except Exception as e:
                 logger.warning(f"Discovery provider {provider.__class__.__name__} failed: {e}")
 
-        # Deterministic sorting: preferred sources first, then API sources, then Web
+        # Deterministic sorting: preferred + field-matching + structured sources first
         pref_domains = [
             self.registry.normalize_domain(p) for p in request.source_preferences if p
         ]
+        field_tokens = set()
+        for field in (request.required_fields or []):
+            field_tokens.update(t for t in field.lower().split("_") if len(t) > 2)
+        entity_token = (request.entity or "").lower()
 
         def sort_key(s: SourceDefinition) -> int:
             score = 100
-            if s.domain in pref_domains or any(p in s.name.lower() for p in request.source_preferences):
-                score -= 50
+            if s.domain in pref_domains or any(p.lower() in s.name.lower() for p in request.source_preferences):
+                score -= 40
+            caps = " ".join(c.lower() for c in (s.capabilities or []))
+            field_matches = sum(1 for token in field_tokens if token in caps)
+            score -= min(field_matches, 4) * 8
+            if entity_token and entity_token in caps:
+                score -= 15
             if s.type.value == "api":
-                score -= 20
+                score -= 12
             elif s.type.value == "dataset":
-                score -= 10
+                score -= 8
+            elif s.type.value == "rss":
+                score -= 4
+            if (s.metadata or {}).get("discovered_by") == "web_search":
+                score += 5  # slight preference for curated registry sources
             return score
 
         all_sources.sort(key=sort_key)
@@ -82,6 +95,13 @@ class SourceDiscovery:
     async def discover(self, request: CollectionRequest) -> List[SourceDefinition]:
         """Alias for discover_sources."""
         return await self.discover_sources(request)
+
+    def estimate_availability(
+        self, request: CollectionRequest, sources: List[SourceDefinition]
+    ) -> List[dict]:
+        """Estimates which requested fields the given sources can likely provide."""
+        from app.collection.discovery.grounding import estimate_field_availability
+        return estimate_field_availability(request.required_fields, sources)
 
     async def discover_alternative_sources(
         self,

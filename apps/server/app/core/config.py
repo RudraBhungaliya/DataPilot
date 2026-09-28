@@ -137,5 +137,21 @@ class Settings(BaseSettings):
     WORKER_CONCURRENCY: int = 2
     METRICS_ENABLED: bool = True
 
+    # Phase 4+: Dynamic source discovery
+    SEARCH_PROVIDER: str = ""  # "", "brave", "tavily" or "generic"
+    SEARCH_API_URL: str = ""
+    SEARCH_API_KEY: Union[str, None] = None
+    SEARCH_RESULTS_PATH: str = "web.results"  # dotted path to the results array
+    SEARCH_URL_FIELD: str = "url"  # field holding the result URL
+    SEARCH_TITLE_FIELD: str = "title"  # field holding the title
+    SEARCH_SNIPPET_FIELD: str = "description"  # field holding the snippet
+    SEARCH_MAX_RESULTS: int = 8
+    SEARCH_TIMEOUT_SECONDS: float = 8.0
+
+    # Phase 5+: Grounding / verification
+    GROUNDING_PROBE_ENABLED: bool = False  # live-fetch a sample to verify field availability
+    GROUNDING_SAMPLE_SIZE: int = 3
+    GROUNDING_MIN_COVERAGE: float = 0.5  # below this, auto-broaden sources / enrich
+
 
 settings = Settings()

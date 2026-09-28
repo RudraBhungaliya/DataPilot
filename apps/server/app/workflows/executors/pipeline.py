@@ -110,9 +110,34 @@ class ExtractionStepExecutor(BaseStepExecutor):
             return StepResult(success=False, error=f"Extraction failed: {str(e)}", metadata={"is_mock": False})
 
 
+class EnrichmentStepExecutor(BaseStepExecutor):
+    """ENRICH_DATA: second-pass extraction to fill fields the first pass missed."""
+
+    async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
+        req = context.input_requirement
+        required_fields = step.config.get("required_fields") or _req(req, "required_fields", []) or []
+        try:
+            stats = await get_data_service().enrich(
+                workflow_id=context.workflow_id,
+                required_fields=required_fields,
+                db=context.db,
+            )
+            return StepResult(
+                success=True,
+                output={
+                    "is_mock": False,
+                    "records_evaluated": stats.records_evaluated,
+                    "records_enriched": stats.records_enriched,
+                },
+                metadata={"is_mock": False, "records_enriched": stats.records_enriched},
+            )
+        except Exception as e:
+            logger.error(f"EnrichmentStepExecutor failed: {e}", exc_info=True)
+            return StepResult(success=False, error=f"Enrichment failed: {str(e)}", metadata={"is_mock": False})
+
+
 class NormalizeStepExecutor(BaseStepExecutor):
     """NORMALIZE_DATA: standardize keys/values."""
-
     async def execute(self, step: WorkflowStep, context: ExecutionContext) -> StepResult:
         try:
             stats = await get_data_service().normalize(context.workflow_id, db=context.db)

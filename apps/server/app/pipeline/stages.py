@@ -6,6 +6,7 @@ ExtractionRecord instances.
 """
 
 import csv
+import difflib
 import io
 import json
 from typing import Any, Dict, List, Optional
@@ -238,16 +239,30 @@ def build_dedupe_key(data: Dict[str, Any], keys: List[str]) -> Optional[str]:
     return "|".join(parts)
 
 
+def _similarity(a: str, b: str) -> float:
+    """Normalized string similarity in [0, 1]."""
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if len(a) < 4 or len(b) < 4:
+        return 1.0 if a == b else 0.0  # avoid merging short/ambiguous keys
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def mark_duplicates(
     records: List[ExtractionRecord],
     keys: List[str],
     match_threshold: float = 0.95,
 ) -> int:
     """
-    Marks duplicate records in place (keeping the first occurrence of each key).
+    Marks duplicate records in place (keeping the first occurrence).
+
+    Exact key matches are always duplicates; when match_threshold < 1.0,
+    near-identical keys are also treated as duplicates (fuzzy dedup).
     Returns the number of records marked as duplicates.
     """
-    seen: Dict[str, str] = {}
+    seen: List[tuple] = []  # (canonical_key, record_id)
     duplicates = 0
     for record in records:
         key = build_dedupe_key(record.data, keys)
@@ -255,11 +270,18 @@ def mark_duplicates(
         if not key:
             record.is_duplicate = False
             continue
-        if key in seen:
+
+        match = None
+        for seen_key, _ in seen:
+            if key == seen_key or _similarity(key, seen_key) >= match_threshold:
+                match = seen_key
+                break
+
+        if match is not None:
             record.is_duplicate = True
             duplicates += 1
         else:
-            seen[key] = record.record_id
+            seen.append((key, record.record_id))
             record.is_duplicate = False
     return duplicates
 

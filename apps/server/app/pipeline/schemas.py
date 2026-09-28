@@ -47,6 +47,7 @@ class PipelineStats(BaseModel):
     documents_processed: int = 0
     records_extracted: int = 0
     records_normalized: int = 0
+    records_enriched: int = 0
     records_evaluated: int = 0
     records_valid: int = 0
     records_invalid: int = 0
