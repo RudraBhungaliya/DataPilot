@@ -302,15 +302,15 @@ def test_api_create_and_get_workflow():
         "status": "CONFIRMED",
     }
     response = client.post("/api/v1/workflows", json=payload)
-    if response.status_code == 201:
-        data = response.json()
-        assert data["prompt"] == payload["prompt"]
-        assert data["status"] == "CONFIRMED"
-        wf_id = data["id"]
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["prompt"] == payload["prompt"]
+    assert data["status"] == "CONFIRMED"
+    wf_id = data["id"]
 
-        get_res = client.get(f"/api/v1/workflows/{wf_id}")
-        assert get_res.status_code == 200
-        assert get_res.json()["id"] == wf_id
+    get_res = client.get(f"/api/v1/workflows/{wf_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["id"] == wf_id
 
 
 if __name__ == "__main__":

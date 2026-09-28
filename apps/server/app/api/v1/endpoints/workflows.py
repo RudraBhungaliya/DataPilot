@@ -6,7 +6,7 @@ Provides Phase 2 requirement parsing and Phase 3 workflow planning and execution
 from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.schemas import (
     RequirementParseRequest,
@@ -38,6 +38,9 @@ class CreateWorkflowRequest(BaseModel):
 
 
 class WorkflowResponse(BaseModel):
+    # Allow direct serialization of SQLAlchemy ORM Workflow instances
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     prompt: str
     parsed_requirement: Optional[Dict[str, Any]] = None
@@ -45,8 +48,8 @@ class WorkflowResponse(BaseModel):
     status: str
     error: Optional[str] = None
     execution_metadata: Optional[Dict[str, Any]] = None
-    created_at: Any
-    updated_at: Any
+    created_at: Any = None
+    updated_at: Any = None
 
 
 # ---------------------------------------------------------------------------
