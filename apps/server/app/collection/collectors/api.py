@@ -41,6 +41,13 @@ class APICollector(BaseCollector):
         self.rate_limiter = rate_limiter or RateLimiter()
         self.retry_handler = retry_handler or RetryHandler()
 
+    async def aclose(self) -> None:
+        """Closes the underlying HTTP client."""
+        try:
+            await self.client.aclose()
+        except Exception:
+            pass
+
     def _build_query_params(self, source: SourceDefinition, request: CollectionRequest) -> Dict[str, Any]:
         """
         Derives query parameters from request constraints and source configuration.

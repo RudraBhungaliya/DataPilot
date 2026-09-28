@@ -382,3 +382,10 @@ class CollectionManager:
         )
 
     execute_collection = execute_job
+
+    async def aclose(self) -> None:
+        """Closes collector network resources held by this manager."""
+        try:
+            await self.router.aclose()
+        except Exception:
+            pass

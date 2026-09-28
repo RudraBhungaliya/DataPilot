@@ -57,3 +57,10 @@ class SourceRouter:
 
         logger.debug(f"SourceRouter: Routed {source.source_id} to HTTPCollector")
         return self.http_collector
+
+    async def aclose(self) -> None:
+        """Closes all collector network clients."""
+        await self.http_collector.aclose()
+        await self.api_collector.aclose()
+        await self.browser_collector.aclose()
+        await self.zyte_adapter.aclose()

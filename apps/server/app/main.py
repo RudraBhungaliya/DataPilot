@@ -27,6 +27,13 @@ async def lifespan(app: FastAPI):
 
     # Clean shutdown
     logger.info(f"🛑 Shutting down {settings.PROJECT_NAME}...")
+    # Close shared collection engine network clients (only if it was instantiated)
+    try:
+        from app.collection.dependencies import get_collection_service
+        if get_collection_service.cache_info().currsize:
+            await get_collection_service().aclose()
+    except Exception as e:
+        logger.warning(f"Collection engine shutdown warning: {e}")
     await RedisService.close()
     await engine.dispose()
     logger.info("Database and Redis connections gracefully disposed.")

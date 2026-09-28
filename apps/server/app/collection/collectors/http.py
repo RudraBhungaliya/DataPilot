@@ -65,6 +65,13 @@ class HTTPCollector(BaseCollector):
         )
         self.max_size_bytes = settings.DATAPILOT_MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 
+    async def aclose(self) -> None:
+        """Closes the underlying HTTP client."""
+        try:
+            await self.client.aclose()
+        except Exception:
+            pass
+
     def is_captcha_challenge(
         self,
         status_code: int,

@@ -32,6 +32,14 @@ class ZyteAdapter(BaseCollector):
         """Checks if Zyte credentials are provided in environment settings."""
         return bool(self.api_key and self.api_key.strip())
 
+    async def aclose(self) -> None:
+        """Closes the adapter's client if one was supplied."""
+        if self.client is not None:
+            try:
+                await self.client.aclose()
+            except Exception:
+                pass
+
     async def collect(
         self,
         source: SourceDefinition,

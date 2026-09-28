@@ -377,3 +377,10 @@ class CollectionService:
             reverse=True,
         )
         return jobs[:limit]
+
+    async def aclose(self) -> None:
+        """Closes collector network resources held by this service."""
+        try:
+            await self.manager.aclose()
+        except Exception:
+            pass

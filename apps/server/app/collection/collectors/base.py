@@ -33,6 +33,10 @@ class BaseCollector(ABC):
     Abstract collector interface for fetching raw external documents.
     """
 
+    async def aclose(self) -> None:
+        """Releases any network resources held by the collector (overridable)."""
+        return None
+
     @abstractmethod
     async def collect(
         self,
