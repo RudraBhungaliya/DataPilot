@@ -33,6 +33,7 @@ from app.pipeline.stages import (
     records_to_csv,
     records_to_json,
     validate_record,
+    validate_records,
     normalize_data,
     mark_duplicates,
 )
@@ -135,18 +136,32 @@ def test_normalize_data():
     assert normalized["funding"] == "1000"
 
 
-def test_validate_record_required_and_filters():
-    assert validate_record({"company_name": "Acme"}, ["company_name", "funding"]) == [
-        "missing_required_field:funding"
-    ]
-    ok = validate_record({"company_name": "Acme", "funding": 2000}, ["company_name"], [
+def test_validate_record_lenient_and_strict():
+    # Lenient (default): missing requested fields are recorded, not fatal
+    result = validate_record({"company_name": "Acme"}, ["company_name", "funding"])
+    assert result["errors"] == []
+    assert result["missing_fields"] == ["funding"]
+    assert result["completeness"] == 0.5
+
+    # A filter whose field is absent is unverified (not fatal) in lenient mode
+    result2 = validate_record({"company_name": "Acme"}, ["company_name"], [
         {"field": "funding", "operator": "greater_than", "value": 1500}
     ])
-    assert ok == []
-    failed = validate_record({"company_name": "Acme", "funding": 1000}, ["company_name"], [
+    assert result2["errors"] == []
+    assert "unverified_filter:funding" in result2["warnings"]
+
+    # A present field that fails a filter is a hard error
+    result3 = validate_record({"company_name": "Acme", "funding": 1000}, ["company_name"], [
         {"field": "funding", "operator": "greater_than", "value": 1500}
     ])
-    assert failed == ["filter_failed:funding"]
+    assert result3["errors"] == ["filter_failed:funding"]
+
+    # Records with no identity at all are invalid
+    assert "no_identity_fields" in validate_record({}, ["company_name"])["errors"]
+
+    # Strict mode restores all-or-nothing validation
+    result4 = validate_record({"company_name": "Acme"}, ["company_name", "funding"], strict=True)
+    assert "missing_required_field:funding" in result4["errors"]
 
 
 def test_mark_duplicates():
@@ -181,7 +196,9 @@ async def test_pipeline_service_end_to_end_and_export():
 
     await service.normalize("wf_1")
     vs = await service.validate("wf_1", ["company_name", "funding"], [])
-    assert vs.records_valid == 2 and vs.records_invalid == 1
+    # Lenient: all three carry an identity value; the one missing funding is kept
+    assert vs.records_valid == 3 and vs.records_invalid == 0
+    assert vs.missing_counts.get("funding") == 1
 
     ds = await service.deduplicate("wf_1", ["company_name"])
     assert ds.duplicates_removed == 1
@@ -189,16 +206,26 @@ async def test_pipeline_service_end_to_end_and_export():
     dataset = await service.build_dataset(
         "wf_1", "startup", "Startup Dataset", ["company_name", "funding"], "json"
     )
-    assert dataset.record_count == 1
+    assert dataset.record_count == 2  # Acme + Beta (duplicate Acme removed)
     assert dataset.workflow_id == "wf_1"
+    assert dataset.metadata_["field_coverage"]["funding"] == 0.5
 
     records = await service.list_dataset_records(dataset.id)
-    assert len(records) == 1
+    assert len(records) == 2
 
     export = await service.export_dataset(dataset.id, "json")
-    assert export["record_count"] == 1
+    assert export["record_count"] == 2
     assert export["size_bytes"] > 0
     assert Path(export["stored_at"]).exists()
+
+
+def test_strict_validation_drops_incomplete_records():
+    records = [
+        ExtractionRecord(entity="startup", data={"company_name": "Acme", "funding": 1000}),
+        ExtractionRecord(entity="startup", data={"company_name": "Beta"}),
+    ]
+    result = validate_records(records, ["company_name", "funding"], [], strict=True)
+    assert result["valid"] == 1 and result["invalid"] == 1
 
 
 def test_export_serializers():

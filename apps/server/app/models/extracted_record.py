@@ -35,6 +35,8 @@ class ExtractedRecord(Base, TimestampMixin):
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     is_valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     validation_errors: Mapped[List[str]] = mapped_column(JSON, default=list, nullable=False)
+    missing_fields: Mapped[List[str]] = mapped_column(JSON, default=list, nullable=False)
+    completeness: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     dedupe_key: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, index=True)
     is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     dataset_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)

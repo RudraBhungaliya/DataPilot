@@ -46,6 +46,8 @@ class DatasetRecord(BaseModel):
     confidence: float = 0.0
     is_valid: bool = True
     validation_errors: List[str] = Field(default_factory=list)
+    missing_fields: List[str] = Field(default_factory=list)
+    completeness: float = 0.0
     dedupe_key: Optional[str] = None
     is_duplicate: bool = False
 
@@ -87,6 +89,8 @@ def _serialize_record(record: ExtractionRecord) -> DatasetRecord:
         confidence=record.confidence,
         is_valid=record.is_valid,
         validation_errors=record.validation_errors,
+        missing_fields=record.missing_fields,
+        completeness=record.completeness,
         dedupe_key=record.dedupe_key,
         is_duplicate=record.is_duplicate,
     )

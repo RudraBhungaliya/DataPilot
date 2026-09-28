@@ -79,15 +79,23 @@ class DataPipelineService:
         workflow_id: str,
         required_fields: List[str],
         filters: Optional[List[Dict[str, Any]]] = None,
+        strict: bool = False,
         db: Optional[AsyncSession] = None,
     ) -> PipelineStats:
         records = await self.store.list_records(workflow_id, db=db)
-        result = validate_records(records, required_fields, filters)
+        result = validate_records(records, required_fields, filters, strict=strict)
         await self.store.update_records(workflow_id, records, db=db)
+        warnings = [
+            f"{missing_count}/{len(records)} records missing '{field}'"
+            for field, missing_count in result["missing_counts"].items()
+        ]
         return PipelineStats(
             records_evaluated=len(records),
             records_valid=result["valid"],
             records_invalid=result["invalid"],
+            mean_completeness=result["mean_completeness"],
+            missing_counts=result["missing_counts"],
+            warnings=warnings,
         )
 
     async def deduplicate(
@@ -123,6 +131,18 @@ class DataPipelineService:
         duplicates = sum(1 for r in all_records if r.is_duplicate)
         invalid = sum(1 for r in all_records if not r.is_valid)
 
+        # Coverage: fraction of included records that actually provide each field
+        coverage: Dict[str, float] = {}
+        for field in (schema_fields or []):
+            if selected:
+                have = sum(1 for r in selected if r.data.get(field) not in (None, "", [], {}))
+                coverage[field] = round(have / len(selected), 3)
+            else:
+                coverage[field] = 0.0
+        mean_completeness = (
+            round(sum(r.completeness for r in selected) / len(selected), 4) if selected else 0.0
+        )
+
         dataset = DatasetORM(
             id=dataset_id,
             workflow_id=workflow_id,
@@ -139,6 +159,8 @@ class DataPipelineService:
                 "total_records": len(all_records),
                 "invalid_records": invalid,
                 "duplicate_records": duplicates,
+                "field_coverage": coverage,
+                "mean_completeness": mean_completeness,
             },
         )
         await self.store.save_dataset(dataset, db=db)

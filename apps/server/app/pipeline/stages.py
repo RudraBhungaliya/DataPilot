@@ -103,44 +103,120 @@ def _evaluate_filter(data: Dict[str, Any], rule: Dict[str, Any]) -> bool:
     return actual == expected
 
 
+_IDENTITY_FIELD_CANDIDATES = (
+    "company_name", "name", "title", "id", "url", "website", "repository",
+    "product_name", "lab_name", "sponsor_name", "record_id",
+)
+
+
+def _is_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
+
+
+def _has_identity(data: Dict[str, Any], required_fields: List[str]) -> bool:
+    """A record is meaningful only if it carries at least one identifying value."""
+    for field in list(required_fields or []) + list(_IDENTITY_FIELD_CANDIDATES):
+        if _is_present((data or {}).get(field)):
+            return True
+    return any(_is_present(v) for v in (data or {}).values())
+
+
 def validate_record(
     data: Dict[str, Any],
     required_fields: List[str],
     filters: Optional[List[Dict[str, Any]]] = None,
-) -> List[str]:
-    """Returns a list of validation error strings (empty list means valid)."""
+    strict: bool = False,
+) -> Dict[str, Any]:
+    """
+    Evaluates a single record.
+
+    Lenient (default): a record is valid if it carries at least one identity value;
+    missing requested fields are recorded (not fatal), filters whose field is absent
+    are marked unverified, and completeness is scored.
+
+    Strict: every requested field is required and every filter must be verifiable.
+    """
+    data = data or {}
+    required_fields = required_fields or []
+    present = [f for f in required_fields if _is_present(data.get(f))]
+    missing = [f for f in required_fields if f not in present]
+    completeness = round(len(present) / len(required_fields), 4) if required_fields else 1.0
+
     errors: List[str] = []
-    for field in required_fields or []:
-        value = data.get(field)
-        if value is None or (isinstance(value, str) and not value.strip()):
+    warnings: List[str] = []
+
+    if strict:
+        for field in missing:
             errors.append(f"missing_required_field:{field}")
+
+    if not _has_identity(data, required_fields):
+        errors.append("no_identity_fields")
 
     for rule in filters or []:
         if not isinstance(rule, dict):
             continue
+        field = rule.get("field")
+        if field is not None and not _is_present(data.get(field)):
+            # Filter cannot be evaluated because the field is missing
+            if strict:
+                errors.append(f"filter_failed:{field}")
+            else:
+                warnings.append(f"unverified_filter:{field}")
+            continue
         if not _evaluate_filter(data, rule):
-            errors.append(f"filter_failed:{rule.get('field')}")
+            errors.append(f"filter_failed:{field}")
 
-    return errors
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "missing_fields": missing,
+        "completeness": completeness,
+    }
 
 
 def validate_records(
     records: List[ExtractionRecord],
     required_fields: List[str],
     filters: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, int]:
-    """Validates records in place. Returns {'valid': n, 'invalid': m}."""
+    strict: bool = False,
+) -> Dict[str, Any]:
+    """Validates records in place and returns aggregate statistics."""
     valid = 0
     invalid = 0
+    missing_counts: Dict[str, int] = {}
+    completeness_values: List[float] = []
+
     for record in records:
-        errors = validate_record(record.data, required_fields, filters)
-        record.validation_errors = errors
-        record.is_valid = len(errors) == 0
+        result = validate_record(record.data, required_fields, filters, strict=strict)
+        record.validation_errors = result["errors"] + result["warnings"]
+        record.missing_fields = result["missing_fields"]
+        record.completeness = result["completeness"]
+        record.is_valid = len(result["errors"]) == 0
+
+        completeness_values.append(result["completeness"])
+        for field in result["missing_fields"]:
+            missing_counts[field] = missing_counts.get(field, 0) + 1
+
         if record.is_valid:
             valid += 1
         else:
             invalid += 1
-    return {"valid": valid, "invalid": invalid}
+
+    mean_completeness = (
+        round(sum(completeness_values) / len(completeness_values), 4) if completeness_values else 0.0
+    )
+    return {
+        "valid": valid,
+        "invalid": invalid,
+        "mean_completeness": mean_completeness,
+        "missing_counts": missing_counts,
+    }
 
 
 # ---------------------------------------------------------------------------

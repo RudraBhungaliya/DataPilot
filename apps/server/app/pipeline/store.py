@@ -30,6 +30,8 @@ def _to_domain(orm: ExtractedRecordORM) -> ExtractionRecord:
         confidence=orm.confidence or 0.0,
         is_valid=orm.is_valid,
         validation_errors=orm.validation_errors or [],
+        missing_fields=orm.missing_fields or [],
+        completeness=orm.completeness or 0.0,
         dedupe_key=orm.dedupe_key,
         is_duplicate=orm.is_duplicate,
         dataset_id=orm.dataset_id,
@@ -50,6 +52,8 @@ def _to_orm(record: ExtractionRecord, workflow_id: Optional[str]) -> ExtractedRe
         confidence=record.confidence,
         is_valid=record.is_valid,
         validation_errors=record.validation_errors,
+        missing_fields=record.missing_fields,
+        completeness=record.completeness,
         dedupe_key=record.dedupe_key,
         is_duplicate=record.is_duplicate,
         dataset_id=record.dataset_id,
@@ -108,6 +112,8 @@ class DataStore:
                 existing.confidence = record.confidence
                 existing.is_valid = record.is_valid
                 existing.validation_errors = record.validation_errors
+                existing.missing_fields = record.missing_fields
+                existing.completeness = record.completeness
                 existing.dedupe_key = record.dedupe_key
                 existing.is_duplicate = record.is_duplicate
                 existing.dataset_id = record.dataset_id
