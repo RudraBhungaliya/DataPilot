@@ -24,9 +24,12 @@ import { Card } from "@/components/ui/Card";
 import {
   parseRequirement,
   createWorkflow,
+  planWorkflow,
   StructuredRequirement,
   RequirementParseResponse,
+  WorkflowDefinition,
 } from "@/lib/api";
+import { WorkflowEngineView } from "./WorkflowEngineView";
 
 const PRESET_EXAMPLES = [
   {
@@ -58,6 +61,8 @@ export function RequirementUnderstanding() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RequirementParseResponse | null>(null);
   const [createdWorkflowId, setCreatedWorkflowId] = useState<string | null>(null);
+  const [workflowPlan, setWorkflowPlan] = useState<WorkflowDefinition | null>(null);
+  const [planningWorkflow, setPlanningWorkflow] = useState(false);
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -72,6 +77,7 @@ export function RequirementUnderstanding() {
     setLoading(true);
     setErrorMessage(null);
     setCreatedWorkflowId(null);
+    setWorkflowPlan(null);
 
     try {
       const response = await parseRequirement(text);
@@ -83,6 +89,29 @@ export function RequirementUnderstanding() {
       setErrorMessage("Unable to understand this requirement. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateWorkflow = async () => {
+    if (!result?.requirement) return;
+    setPlanningWorkflow(true);
+    setErrorMessage(null);
+    try {
+      const res = await planWorkflow(
+        result.requirement,
+        prompt,
+        createdWorkflowId || result.workflow_id || undefined
+      );
+      if (res.success && res.workflow) {
+        setWorkflowPlan(res.workflow);
+        setCreatedWorkflowId(res.workflow.workflow_id);
+      } else {
+        setErrorMessage(res.error || "Failed to generate workflow plan.");
+      }
+    } catch (err: any) {
+      setErrorMessage("Unable to connect to workflow planning engine.");
+    } finally {
+      setPlanningWorkflow(false);
     }
   };
 
@@ -127,7 +156,7 @@ export function RequirementUnderstanding() {
               </div>
             </div>
             <Badge variant="info" className="self-start sm:self-auto font-mono text-[11px]">
-              AI Engine: Gemini
+              AI Engine: Groq
             </Badge>
           </div>
 
@@ -264,15 +293,22 @@ export function RequirementUnderstanding() {
               <Button
                 variant="primary"
                 size="sm"
-                icon={<ArrowRight className="w-3.5 h-3.5" />}
-                disabled={savingWorkflow || createdWorkflowId !== null}
-                onClick={handleCreateWorkflow}
+                icon={
+                  planningWorkflow ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Layers className="w-3.5 h-3.5 text-white" />
+                  )
+                }
+                disabled={planningWorkflow || loading}
+                onClick={handleGenerateWorkflow}
+                className="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white shadow-md shadow-sky-500/20"
               >
-                {createdWorkflowId
-                  ? "Workflow Saved"
-                  : savingWorkflow
-                  ? "Saving..."
-                  : "Create Workflow"}
+                {planningWorkflow
+                  ? "Planning DAG..."
+                  : workflowPlan
+                  ? "Regenerate Workflow"
+                  : "Generate Workflow"}
               </Button>
             </div>
           </div>
@@ -454,6 +490,44 @@ export function RequirementUnderstanding() {
               </div>
             </Card>
           </div>
+
+          {/* Phase 3: Workflow DAG Engine View */}
+          {workflowPlan ? (
+            <WorkflowEngineView
+              initialWorkflow={workflowPlan}
+              onWorkflowUpdated={(updated) => setWorkflowPlan(updated)}
+            />
+          ) : (
+            <div className="p-6 rounded-2xl border border-dashed border-slate-800 bg-slate-900/30 text-center space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto border border-indigo-500/20">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold text-white">
+                  Ready to Plan Workflow DAG
+                </h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Translate this specification into a deterministic DAG workflow with source discovery, collection, extraction, validation, and dataset compilation steps.
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={
+                  planningWorkflow ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-sky-200" />
+                  )
+                }
+                disabled={planningWorkflow}
+                onClick={handleGenerateWorkflow}
+                className="shadow-lg shadow-sky-500/20 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500"
+              >
+                {planningWorkflow ? "Generating Workflow..." : "Generate Workflow Plan"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

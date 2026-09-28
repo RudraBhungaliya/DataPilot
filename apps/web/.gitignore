@@ -1,0 +1,52 @@
+# ==============================================================================
+# DataPilot Web - Next.js / TypeScript Git Ignore
+# ==============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Next.js Build & Cache Output
+.next/
+out/
+build/
+dist/
+.turbo/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment Variables & Secrets
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+!.env.example
+!.env.template
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+cypress/videos/
+cypress/screenshots/
+test-results/
+.playwright/
+
+# TypeCheck / TypeScript build info
+*.tsbuildinfo
+next-env.d.ts.bak
+
+# IDE & OS specifics
+.DS_Store
+*.pem
+*.swp
+*.swo
+.idea/
+.vscode/

@@ -12,7 +12,7 @@ from app.ai.schemas import (
     RequirementParseRequest,
     RequirementParseResponse,
 )
-from app.ai.provider import LLMProvider, GeminiProvider, MockProvider, get_llm_provider
+from app.ai.provider import LLMProvider, GeminiProvider, GroqProvider, MockProvider, get_llm_provider
 from app.ai.parser import RequirementParser, RequirementParsingError
 from app.ai.prompts import REQUIREMENT_UNDERSTANDING_SYSTEM_PROMPT
 
@@ -27,6 +27,7 @@ __all__ = [
     "RequirementParseResponse",
     "LLMProvider",
     "GeminiProvider",
+    "GroqProvider",
     "MockProvider",
     "get_llm_provider",
     "RequirementParser",

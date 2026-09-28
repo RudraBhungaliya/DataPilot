@@ -1,0 +1,94 @@
+# ==============================================================================
+# DataPilot Server - Python / FastAPI Git Ignore
+# ==============================================================================
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+bin/
+lib/
+include/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C extensions
+*.c
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+var/
+sdist/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Pytest / Test runner & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.tox/
+
+# Type checkers & Linters
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+
+# Environment & Secrets (Never commit credentials)
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Local SQLite & Databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Log files & Debugging
+*.log
+*.log.*
+logs/
+*.pid
+
+# Scratch scripts & Temporary files
+scratch/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# IDE & OS specifics
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime data artifacts (exports, caches)
+storage/

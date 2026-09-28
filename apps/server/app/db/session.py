@@ -4,15 +4,17 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.logger import logger
 
-# Create asynchronous SQLAlchemy engine
+# Create asynchronous SQLAlchemy engine backed by a real connection pool
 engine = create_async_engine(
     settings.async_database_url,
     echo=settings.DEBUG,
     future=True,
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=1800,
 )
+
 
 # Async session factory
 AsyncSessionLocal = async_sessionmaker(
@@ -36,12 +38,17 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 async def init_db() -> bool:
-    """Initialize database tables if connected."""
+    """
+    Verify database connectivity at startup.
+
+    Schema management is handled exclusively by Alembic
+    (`alembic upgrade head`); the application never creates tables implicitly,
+    so migrations remain the single source of truth.
+    """
     try:
-        from app.models import Base
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables initialized / verified.")
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        logger.info("Database connectivity verified.")
         return True
     except Exception as e:
         logger.warning(f"Database initialization deferred (PostgreSQL may be offline): {e}")

@@ -64,16 +64,68 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_URL: Union[str, None] = None
 
+    @property
+    def redis_connection_url(self) -> str:
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
+        return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
     # AI / LLM Configuration
-    AI_PROVIDER: str = "gemini"
-    AI_MODEL: str = "gemini-2.5-flash"
+    AI_PROVIDER: str = "groq"
+    AI_MODEL: str = "llama-3.3-70b-versatile"
     AI_API_KEY: Union[str, None] = None
+    GROQ_API_KEY: Union[str, None] = None
     GEMINI_API_KEY: Union[str, None] = None
+    AI_FALLBACK_MODELS: List[str] = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+    ]
     AI_TIMEOUT_SECONDS: int = 30
 
     @property
     def effective_ai_api_key(self) -> Union[str, None]:
-        return self.AI_API_KEY or self.GEMINI_API_KEY or os.getenv("AI_API_KEY") or os.getenv("GEMINI_API_KEY")
+        """
+        Returns the API key matching the configured provider.
+
+        A provider-specific key is never mixed with another provider's key. An
+        explicit generic AI_API_KEY always takes precedence.
+        """
+        provider = (self.AI_PROVIDER or "groq").strip().lower()
+        if provider in ("gemini", "google"):
+            specific = self.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+        elif provider in ("groq", "llama"):
+            specific = self.GROQ_API_KEY or os.getenv("GROQ_API_KEY")
+        else:
+            specific = (
+                self.GROQ_API_KEY
+                or self.GEMINI_API_KEY
+                or os.getenv("GROQ_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+            )
+        return self.AI_API_KEY or os.getenv("AI_API_KEY") or specific
+
+    # Source Collection Engine Configuration (Phase 4)
+    DATAPILOT_HTTP_TIMEOUT: int = 20
+    DATAPILOT_HTTP_MAX_RETRIES: int = 3
+    DATAPILOT_HTTP_USER_AGENT: str = "DataPilot/0.1 (+https://github.com/RudraBhungaliya/DataPilot)"
+    DATAPILOT_REQUESTS_PER_DOMAIN: int = 5
+    DATAPILOT_MIN_REQUEST_INTERVAL: float = 0.5  # seconds between requests to same domain
+    DATAPILOT_MAX_DOCUMENT_SIZE_MB: int = 10
+    DATAPILOT_MAX_HUMAN_ATTEMPTS: int = 3  # max human-in-the-loop CAPTCHA retries before blocking a source
+    DATAPILOT_CACHE_MAX_ENTRIES: int = 1000  # in-memory document cache bound
+    DATAPILOT_MAX_IN_MEMORY_JOBS: int = 200  # bound for in-memory collection job fallback store
+    ZYTE_API_KEY: Union[str, None] = None
+    ZYTE_API_URL: str = "https://api.zyte.com/v1/extract"
+
+    # Human-in-the-Loop Notification / Email Configuration
+    DATAPILOT_AUTH_EMAIL: Union[str, None] = "client@datapilot.local"
+    SMTP_HOST: Union[str, None] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Union[str, None] = None
+    SMTP_PASSWORD: Union[str, None] = None
+    SMTP_FROM_EMAIL: str = "noreply@datapilot.local"
+    SMTP_USE_TLS: bool = True
 
 
 settings = Settings()

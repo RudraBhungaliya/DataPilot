@@ -68,9 +68,82 @@ export interface WorkflowRecord {
   id: string;
   prompt: string;
   parsed_requirement?: StructuredRequirement | null;
+  workflow_definition?: WorkflowDefinition | null;
   status: string;
+  error?: string | null;
+  execution_metadata?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+}
+
+export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'HUMAN_ACTION_REQUIRED';
+
+export type StepType =
+  | 'PARSE_REQUIREMENT'
+  | 'DISCOVER_SOURCES'
+  | 'COLLECT_DATA'
+  | 'EXTRACT_DATA'
+  | 'NORMALIZE_DATA'
+  | 'VALIDATE_DATA'
+  | 'DEDUPLICATE_DATA'
+  | 'BUILD_DATASET'
+  | 'EXPORT_DATA';
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  type: StepType;
+  description: string;
+  order: number;
+  depends_on: string[];
+  config: Record<string, any>;
+  status: StepStatus;
+  input?: any;
+  output?: any;
+  error?: string | null;
+  metadata: Record<string, any>;
+}
+
+export type WorkflowStatus =
+  | 'DRAFT'
+  | 'PARSED'
+  | 'CONFIRMED'
+  | 'PLANNED'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface WorkflowDefinition {
+  workflow_id: string;
+  name: string;
+  description: string;
+  status: WorkflowStatus;
+  input_requirement: StructuredRequirement;
+  steps: WorkflowStep[];
+  metadata: Record<string, any>;
+  error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PlanWorkflowResponse {
+  success: boolean;
+  workflow?: WorkflowDefinition | null;
+  error?: string | null;
+}
+
+export interface ExecuteWorkflowResponse {
+  success: boolean;
+  workflow?: WorkflowDefinition | null;
+  error?: string | null;
+}
+
+export interface WorkflowStepsResponse {
+  workflow_id: string;
+  status: WorkflowStatus;
+  steps: WorkflowStep[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -142,6 +215,89 @@ export async function parseRequirement(prompt: string): Promise<RequirementParse
   }
 }
 
+export async function planWorkflow(
+  requirement: StructuredRequirement,
+  prompt?: string,
+  workflowId?: string
+): Promise<PlanWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requirement,
+        prompt,
+        workflow_id: workflowId,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.detail || 'Unable to plan workflow.',
+      };
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Failed to communicate with workflow planning service.',
+    };
+  }
+}
+
+export async function executeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.detail || 'Workflow execution failed.',
+      };
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Failed to trigger workflow execution.',
+    };
+  }
+}
+
+export async function fetchWorkflowDefinition(workflowId: string): Promise<WorkflowRecord | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchWorkflowSteps(workflowId: string): Promise<WorkflowStepsResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/steps`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function createWorkflow(
   prompt: string,
   requirement: StructuredRequirement
@@ -177,3 +333,273 @@ export async function fetchWorkflows(): Promise<WorkflowRecord[]> {
     return [];
   }
 }
+
+// ============================================================================
+// Phase 4: Source Collection Engine Interfaces & APIs
+// ============================================================================
+
+export interface SourceRateLimit {
+  requests?: number;
+  period_seconds?: number;
+  min_interval?: number;
+  max_concurrency?: number;
+}
+
+export interface SourceDefinition {
+  id: string;
+  source_id: string;
+  name: string;
+  type: string;
+  base_url: string;
+  domain: string;
+  capabilities: string[];
+  access_method: string;
+  status: string;
+  rate_limit?: SourceRateLimit;
+  metadata?: Record<string, any>;
+}
+
+export interface CollectionJob {
+  id: string;
+  request_id: string;
+  workflow_id?: string | null;
+  status: string;
+  collection_request?: Record<string, any>;
+  discovered_sources?: any[];
+  selected_sources?: any[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  errors?: any[];
+  source?: Record<string, any> | null;
+  current_step?: string | null;
+  progress?: number;
+  human_action_required?: boolean;
+  human_action_reason?: string | null;
+  checkpoint?: Record<string, any> | null;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+
+export interface RawDocument {
+  document_id: string;
+  job_id: string;
+  source_id: string;
+  url: string;
+  canonical_url: string;
+  content_type: string;
+  content?: string;
+  content_hash: string;
+  status_code: number;
+  collected_at: string;
+  metadata?: Record<string, any>;
+}
+
+export async function fetchSources(): Promise<SourceDefinition[]> {
+  try {
+    const res = await fetch(`${API_BASE}/sources`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchCollectionJobs(): Promise<CollectionJob[]> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchDocuments(jobId: string): Promise<RawDocument[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/documents?limit=50`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.documents ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createCollectionJob(
+  collectionRequest: Record<string, any>
+): Promise<{ ok: boolean; status: number; data: any }> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection_request: collectionRequest }),
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, status: 0, data: { error: err.message } };
+  }
+}
+
+export async function discoverJobSources(
+  jobId: string
+): Promise<{ ok: boolean; status: number; data: any }> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/discover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, status: 0, data: { error: err.message } };
+  }
+}
+
+export async function executeCollectionJob(
+  jobId: string
+): Promise<{ ok: boolean; status: number; data: any }> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, status: 0, data: { error: err.message } };
+  }
+}
+
+export async function fetchCollectionJob(jobId: string): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function resumeCollectionJob(jobId: string): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, data };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function resumeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.detail || 'Workflow resume failed.' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: 'Failed to resume workflow.' };
+  }
+}
+
+// ============================================================================
+// Phase 5: Data Intelligence Pipeline - Datasets
+// ============================================================================
+
+export interface DatasetSummary {
+  id: string;
+  workflow_id?: string | null;
+  name: string;
+  entity: string;
+  description?: string | null;
+  schema_fields: string[];
+  output_format: string;
+  status: string;
+  record_count: number;
+  valid_count: number;
+  duplicate_count: number;
+  metadata?: Record<string, any>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DatasetRecord {
+  record_id: string;
+  entity: string;
+  data: Record<string, any>;
+  source_document_id?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  extraction_method: string;
+  confidence: number;
+  is_valid: boolean;
+  validation_errors: string[];
+  dedupe_key?: string | null;
+  is_duplicate: boolean;
+}
+
+export async function fetchDatasets(): Promise<DatasetSummary[]> {
+  try {
+    const res = await fetch(`${API_BASE}/datasets`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchDataset(datasetId: string): Promise<DatasetSummary | null> {
+  try {
+    const res = await fetch(`${API_BASE}/datasets/${encodeURIComponent(datasetId)}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchDatasetRecords(
+  datasetId: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ total: number; records: DatasetRecord[] }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?limit=${limit}&offset=${offset}`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return { total: 0, records: [] };
+    const data = await res.json();
+    return { total: data.total ?? 0, records: data.records ?? [] };
+  } catch {
+    return { total: 0, records: [] };
+  }
+}
+
+export function datasetExportUrl(datasetId: string, format: 'csv' | 'json'): string {
+  return `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/export/${format}`;
+}
+
+
+
+

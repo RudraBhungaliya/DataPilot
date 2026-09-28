@@ -19,9 +19,9 @@ import { Badge } from "../ui/Badge";
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Tasks", href: "/tasks", icon: CheckSquare, badge: "Phase 2" },
-  { name: "Datasets", href: "/datasets", icon: Database, badge: "Phase 2" },
-  { name: "Sources", href: "/sources", icon: Globe, badge: "Phase 2" },
-  { name: "History", href: "/history", icon: History, badge: "Phase 2" },
+  { name: "Datasets", href: "/datasets", icon: Database, badge: "Phase 5" },
+  { name: "Sources", href: "/sources", icon: Globe, badge: "Phase 4" },
+  { name: "History", href: "/history", icon: History },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -96,7 +96,7 @@ export function Sidebar() {
             <Activity className="w-3.5 h-3.5 text-sky-400" /> System Core
           </span>
           <Badge variant="success" size="sm">
-            Phase 1
+            Phase 5
           </Badge>
         </div>
         <div className="space-y-1.5 text-[11px] font-mono text-slate-400">

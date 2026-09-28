@@ -22,7 +22,10 @@ class Workflow(Base, TimestampMixin):
     )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_requirement: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    workflow_definition: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="PARSED", nullable=False, index=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    execution_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Workflow id={self.id} status={self.status}>"

@@ -176,7 +176,7 @@ def test_api_parse_endpoint_success():
         "clarification_needed": None,
     }
 
-    with patch("app.ai.provider.GeminiProvider.generate_json", new_callable=AsyncMock) as mock_gen:
+    with patch("app.ai.provider.GroqProvider.generate_json", new_callable=AsyncMock) as mock_gen:
         mock_gen.return_value = sample_response
 
         response = client.post(
@@ -219,7 +219,7 @@ def test_api_parse_endpoint_ambiguous_prompt():
         "clarification_needed": "What specific data or industry are you looking to extract?",
     }
 
-    with patch("app.ai.provider.GeminiProvider.generate_json", new_callable=AsyncMock) as mock_gen:
+    with patch("app.ai.provider.GroqProvider.generate_json", new_callable=AsyncMock) as mock_gen:
         mock_gen.return_value = ambiguous_response
 
         response = client.post(
@@ -236,7 +236,7 @@ def test_api_parse_endpoint_ambiguous_prompt():
 
 def test_api_parse_endpoint_provider_auth_error():
     """Tests clean 503 response when AI provider credentials fail."""
-    with patch("app.ai.provider.GeminiProvider.generate_json", side_effect=LLMAuthenticationError("Auth failed")):
+    with patch("app.ai.provider.GroqProvider.generate_json", side_effect=LLMAuthenticationError("Auth failed")):
         response = client.post(
             "/api/v1/workflows/parse",
             json={"prompt": "Find top AI startups"},
@@ -247,11 +247,12 @@ def test_api_parse_endpoint_provider_auth_error():
         assert "not configured or authenticated" in data["detail"]
         # Ensure no secrets or API keys leaked
         assert "AI_API_KEY" not in str(data)
+        assert "GROQ_API_KEY" not in str(data)
 
 
 def test_api_parse_endpoint_provider_timeout():
     """Tests clean 504 response when AI provider times out."""
-    with patch("app.ai.provider.GeminiProvider.generate_json", side_effect=LLMTimeoutError("Timed out")):
+    with patch("app.ai.provider.GroqProvider.generate_json", side_effect=LLMTimeoutError("Timed out")):
         response = client.post(
             "/api/v1/workflows/parse",
             json={"prompt": "Find top AI startups"},
@@ -259,6 +260,26 @@ def test_api_parse_endpoint_provider_timeout():
         assert response.status_code == 504
         data = response.json()
         assert "timed out" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_groq_provider_missing_key_raises_auth_error():
+    """Ensures GroqProvider raises LLMAuthenticationError when no API key is provided."""
+    from app.ai.provider import GroqProvider
+    provider = GroqProvider(api_key="", model="llama-3.3-70b-versatile")
+    with pytest.raises(LLMAuthenticationError):
+        await provider.generate_json("Find startups", "System instructions")
+
+
+@pytest.mark.asyncio
+async def test_groq_provider_parse_json_cleanup():
+    """Ensures GroqProvider correctly cleans up markdown-fenced JSON responses."""
+    from app.ai.provider import GroqProvider
+    provider = GroqProvider(api_key="dummy_key", model="llama-3.3-70b-versatile")
+    fenced_output = "```json\n{\"objective\": \"Extract AI jobs\", \"entity\": \"job\"}\n```"
+    parsed = provider._parse_json_text(fenced_output)
+    assert parsed["objective"] == "Extract AI jobs"
+    assert parsed["entity"] == "job"
 
 
 def test_api_create_and_get_workflow():
@@ -281,15 +302,15 @@ def test_api_create_and_get_workflow():
         "status": "CONFIRMED",
     }
     response = client.post("/api/v1/workflows", json=payload)
-    if response.status_code == 201:
-        data = response.json()
-        assert data["prompt"] == payload["prompt"]
-        assert data["status"] == "CONFIRMED"
-        wf_id = data["id"]
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["prompt"] == payload["prompt"]
+    assert data["status"] == "CONFIRMED"
+    wf_id = data["id"]
 
-        get_res = client.get(f"/api/v1/workflows/{wf_id}")
-        assert get_res.status_code == 200
-        assert get_res.json()["id"] == wf_id
+    get_res = client.get(f"/api/v1/workflows/{wf_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["id"] == wf_id
 
 
 if __name__ == "__main__":

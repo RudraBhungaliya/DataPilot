@@ -1,49 +1,169 @@
-# Node / Next.js
+# ==============================================================================
+# DataPilot Monorepo - Comprehensive Git Ignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Sensitive Credentials (NEVER COMMIT)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+!.env.template
+!**/.env.template
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# ------------------------------------------------------------------------------
+# 2. Node.js & Next.js Frontend
+# ------------------------------------------------------------------------------
 node_modules/
+**/node_modules/
 .next/
+**/.next/
 out/
+**/out/
 build/
+**/build/
 dist/
+**/dist/
 .turbo/
+**/.turbo/
+.pnp/
+.pnp.js
+*.tsbuildinfo
+next-env.d.ts.bak
+
+# Node Debug Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Python
+# ------------------------------------------------------------------------------
+# 3. Python & FastAPI Backend
+# ------------------------------------------------------------------------------
+# Bytecode & Caching
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
+
+# Virtual Environments
 venv/
+**/venv/
 .venv/
+**/.venv/
+env/
+**/env/
 ENV/
+**/ENV/
 env.bak/
 venv.bak/
+
+# Packaging / Distribution
+develop-eggs/
+.eggs/
+*.egg-info/
+*.egg
+MANIFEST
+
+# ------------------------------------------------------------------------------
+# 4. Testing, Linting & Coverage
+# ------------------------------------------------------------------------------
 .pytest_cache/
+**/.pytest_cache/
 .coverage
+.coverage.*
+coverage/
+**/coverage/
 htmlcov/
+**/htmlcov/
+.hypothesis/
+.tox/
 .mypy_cache/
+**/.mypy_cache/
 .ruff_cache/
+**/.ruff_cache/
+.pytype/
+.playwright/
+test-results/
+cypress/videos/
+cypress/screenshots/
 
-# Environment Variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-!*.example
-
-# IDE & OS
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Database / Local storage
+# ------------------------------------------------------------------------------
+# 5. Database & Docker Volume Data
+# ------------------------------------------------------------------------------
+postgres_data/
+**/postgres_data/
+redis_data/
+**/redis_data/
+data/
+**/data/
+*.sqlite
 *.sqlite3
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ------------------------------------------------------------------------------
+# 6. Logs & Temporary Files
+# ------------------------------------------------------------------------------
+*.log
+**/*.log
+logs/
+**/logs/
+*.pid
+scratch/
+**/scratch/
+tmp/
+**/tmp/
+temp/
+**/temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ------------------------------------------------------------------------------
+# 7. Operating System & IDE Specifics
+# ------------------------------------------------------------------------------
+# macOS
+.DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDEs & Editors
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+*.sublime-project
+*.sublime-workspace
+.antigravity/
+**/.antigravity/
+.gemini/
+**/.gemini/
