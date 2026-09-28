@@ -5,7 +5,7 @@ Represents a compiled, validated, deduplicated dataset built from extracted reco
 
 import uuid
 from typing import Any, Dict, List, Optional
-from sqlalchemy import String, Text, JSON, Integer
+from sqlalchemy import String, Text, JSON, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin
 
@@ -29,6 +29,8 @@ class Dataset(Base, TimestampMixin):
     schema_fields: Mapped[List[str]] = mapped_column(JSON, default=list, nullable=False)
     output_format: Mapped[str] = mapped_column(String(16), default="table", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="READY", nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     valid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duplicate_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

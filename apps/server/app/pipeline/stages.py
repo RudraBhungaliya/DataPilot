@@ -285,3 +285,12 @@ def records_to_json(records: List[ExtractionRecord], fields: List[str]) -> str:
         else:
             rows.append(record.data)
     return json.dumps(rows, indent=2, default=str)
+
+
+def records_to_jsonl(records: List[ExtractionRecord], fields: List[str]) -> str:
+    """Newline-delimited JSON, one record per line (stream-friendly)."""
+    lines = []
+    for record in records:
+        row = {field: record.data.get(field) for field in fields} if fields else record.data
+        lines.append(json.dumps(row, default=str))
+    return "\n".join(lines) + ("\n" if lines else "")

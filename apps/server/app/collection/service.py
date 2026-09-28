@@ -384,6 +384,14 @@ class CollectionService:
         """Retrieves the most recently collected raw documents across all jobs."""
         return await self.document_store.list_recent(limit=limit, offset=offset, db=db)
 
+    async def get_document(
+        self,
+        document_id: str,
+        db: Optional[AsyncSession] = None,
+    ) -> Optional[RawDocument]:
+        """Retrieves a single raw document by ID (for evidence/lineage)."""
+        return await self.document_store.get(document_id, db=db)
+
     async def list_recent_jobs(
         self,
         limit: int = 20,

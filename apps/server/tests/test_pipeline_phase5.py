@@ -32,6 +32,7 @@ from app.pipeline.store import DataStore
 from app.pipeline.stages import (
     records_to_csv,
     records_to_json,
+    records_to_jsonl,
     validate_record,
     validate_records,
     normalize_data,
@@ -234,6 +235,97 @@ def test_export_serializers():
     assert "company_name,funding" in csv_text and "Acme,1000" in csv_text
     json_text = records_to_json(records, ["company_name"])
     assert json.loads(json_text) == [{"company_name": "Acme"}]
+    jsonl_text = records_to_jsonl(records, ["company_name", "funding"])
+    assert json.loads(jsonl_text.strip()) == {"company_name": "Acme", "funding": 1000}
+
+
+# ---------------------------------------------------------------------------
+# 3b. Phase 6: search/filter/sort/pagination, versioning, evidence
+# ---------------------------------------------------------------------------
+
+async def _seed_dataset(service):
+    docs = [_json_doc(json.dumps([
+        {"company_name": "Acme", "industry": "AI", "funding": 1000},
+        {"company_name": "Beta", "industry": "Fintech", "funding": 2000},
+        {"company_name": "Gamma", "industry": "AI", "funding": 3000},
+    ]))]
+    await service.extract_records("wf6", "company", ["company_name", "industry", "funding"], docs)
+    await service.normalize("wf6")
+    await service.validate("wf6", ["company_name", "industry", "funding"], [])
+    return await service.build_dataset("wf6", "company", "Companies", ["company_name", "industry", "funding"], "json")
+
+
+@pytest.mark.asyncio
+async def test_dataset_search_filter_sort_pagination():
+    service = DataPipelineService(store=DataStore())
+    dataset = await _seed_dataset(service)
+
+    total, page = await service.query_dataset_records(dataset.id, limit=2, offset=0)
+    assert total == 3 and len(page) == 2
+
+    total, filtered = await service.query_dataset_records(dataset.id, field="industry", value="AI")
+    assert total == 2 and all(r.data["industry"] == "AI" for r in filtered)
+
+    total, searched = await service.query_dataset_records(dataset.id, q="beta")
+    assert total == 1 and searched[0].data["company_name"] == "Beta"
+
+    total, sorted_desc = await service.query_dataset_records(
+        dataset.id, sort_field="funding", order="desc"
+    )
+    assert [r.data["funding"] for r in sorted_desc] == [3000, 2000, 1000]
+
+
+@pytest.mark.asyncio
+async def test_dataset_versioning():
+    service = DataPipelineService(store=DataStore())
+    v1 = await _seed_dataset(service)
+    assert v1.version == 1 and v1.is_latest is True
+
+    v2 = await service.build_dataset(
+        "wf6", "company", "Companies", ["company_name", "industry", "funding"], "json"
+    )
+    assert v2.version == 2 and v2.is_latest is True
+    # Previous version superseded
+    refreshed_v1 = await service.get_dataset(v1.id)
+    assert refreshed_v1.is_latest is False
+
+    latest = await service.list_datasets(workflow_id="wf6", latest_only=True)
+    assert len(latest) == 1 and latest[0].id == v2.id
+
+
+@pytest.mark.asyncio
+async def test_record_evidence_lineage():
+    from app.collection.dependencies import get_collection_service
+
+    service = DataPipelineService(store=DataStore())
+    dataset = await _seed_dataset(service)
+    _, records = await service.query_dataset_records(dataset.id, q="acme")
+    record = records[0]
+
+    # Without a stored raw document -> needs verification
+    bundle = await service.get_record_evidence(record.record_id)
+    assert bundle is not None
+    assert bundle["record"].record_id == record.record_id
+    assert bundle["document"] is None
+
+    # Store the raw document -> evidence becomes observed and traceable
+    collection = get_collection_service()
+    await collection.document_store.save(
+        RawDocument(
+            document_id=record.source_document_id,
+            job_id="job_1",
+            source_id=record.source_id,
+            url=record.source_url,
+            canonical_url=record.source_url,
+            content_type="application/json",
+            content=json.dumps({"company_name": "Acme"}),
+            status_code=200,
+        )
+    )
+    bundle2 = await service.get_record_evidence(record.record_id)
+    assert bundle2["document"] is not None
+    assert bundle2["document"]["document_id"] == record.source_document_id
+    assert bundle2["document"]["content_hash"].startswith("sha256:")
 
 
 # ---------------------------------------------------------------------------

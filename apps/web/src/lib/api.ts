@@ -549,6 +549,8 @@ export interface DatasetSummary {
   schema_fields: string[];
   output_format: string;
   status: string;
+  version: number;
+  is_latest: boolean;
   record_count: number;
   valid_count: number;
   duplicate_count: number;
@@ -596,23 +598,76 @@ export async function fetchDataset(datasetId: string): Promise<DatasetSummary | 
 
 export async function fetchDatasetRecords(
   datasetId: string,
-  limit: number = 50,
-  offset: number = 0
-): Promise<{ total: number; records: DatasetRecord[] }> {
+  opts: {
+    q?: string;
+    field?: string;
+    value?: string;
+    sort?: string;
+    order?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ total: number; count: number; records: DatasetRecord[] }> {
   try {
+    const params = new URLSearchParams();
+    if (opts.q) params.set('q', opts.q);
+    if (opts.field) params.set('field', opts.field);
+    if (opts.value !== undefined) params.set('value', opts.value);
+    if (opts.sort) params.set('sort', opts.sort);
+    params.set('order', opts.order ?? 'asc');
+    params.set('limit', String(opts.limit ?? 50));
+    params.set('offset', String(opts.offset ?? 0));
+
     const res = await fetch(
-      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?limit=${limit}&offset=${offset}`,
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records?${params.toString()}`,
       { cache: 'no-store' }
     );
-    if (!res.ok) return { total: 0, records: [] };
+    if (!res.ok) return { total: 0, count: 0, records: [] };
     const data = await res.json();
-    return { total: data.total ?? 0, records: data.records ?? [] };
+    return { total: data.total ?? 0, count: data.count ?? 0, records: data.records ?? [] };
   } catch {
-    return { total: 0, records: [] };
+    return { total: 0, count: 0, records: [] };
   }
 }
 
-export function datasetExportUrl(datasetId: string, format: 'csv' | 'json'): string {
+export interface EvidenceItem {
+  source: string;
+  source_type: string;
+  reference: string;
+  excerpt?: string | null;
+  verification_status: string;
+}
+
+export interface RecordEvidence {
+  record_id: string;
+  entity: string;
+  data: Record<string, any>;
+  extraction_method: string;
+  confidence: number;
+  completeness: number;
+  missing_fields: string[];
+  evidence: EvidenceItem[];
+  document?: Record<string, any> | null;
+  source?: Record<string, any> | null;
+}
+
+export async function fetchRecordEvidence(
+  datasetId: string,
+  recordId: string
+): Promise<RecordEvidence | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/records/${encodeURIComponent(recordId)}/evidence`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export function datasetExportUrl(datasetId: string, format: 'csv' | 'json' | 'jsonl'): string {
   return `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/export/${format}`;
 }
 
