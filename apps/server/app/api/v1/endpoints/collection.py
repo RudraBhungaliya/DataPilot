@@ -220,6 +220,7 @@ async def get_collection_job(
 )
 async def resume_collection_job(
     job_id: str,
+    skip_source: bool = Query(default=False, description="Abandon the blocked source and use alternatives"),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResult:
     """
@@ -242,7 +243,7 @@ async def resume_collection_job(
         )
 
     try:
-        result = await collection_service.resume_job(job_id=job_id, db=db)
+        result = await collection_service.resume_job(job_id=job_id, db=db, skip_current_source=skip_source)
         return result
     except Exception as e:
         logger.error(f"Failed to resume collection job {job_id}: {e}", exc_info=True)

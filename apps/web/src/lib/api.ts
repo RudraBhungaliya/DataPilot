@@ -493,12 +493,15 @@ export async function fetchCollectionJob(jobId: string): Promise<any> {
   }
 }
 
-export async function resumeCollectionJob(jobId: string): Promise<any> {
+export async function resumeCollectionJob(jobId: string, skipSource: boolean = false): Promise<any> {
   try {
-    const res = await fetch(`${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const res = await fetch(
+      `${API_BASE}/collection/jobs/${encodeURIComponent(jobId)}/resume?skip_source=${skipSource}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
   } catch (err: any) {
@@ -506,9 +509,9 @@ export async function resumeCollectionJob(jobId: string): Promise<any> {
   }
 }
 
-export async function resumeWorkflow(workflowId: string): Promise<ExecuteWorkflowResponse> {
+export async function resumeWorkflow(workflowId: string, skipSource: boolean = false): Promise<ExecuteWorkflowResponse> {
   try {
-    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume`, {
+    const res = await fetch(`${API_BASE}/workflows/${workflowId}/resume?skip_source=${skipSource}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });

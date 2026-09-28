@@ -72,13 +72,18 @@ class CollectionStepExecutor(BaseStepExecutor):
             existing_job_id = step.metadata.get("job_id")
             if existing_job_id and step.metadata.get("human_action_required"):
                 try:
-                    existing_job = await self.service.get_job(existing_job_id)
+                    existing_job = await self.service.get_job(existing_job_id, db=context.db)
                     if existing_job is not None and existing_job.status == JobStatus.HUMAN_ACTION_REQUIRED.value:
                         logger.info(
                             f"Resuming paused collection job '{existing_job_id}' for step '{step.id}'"
                         )
-                        result = await self.service.resume_job(job_id=existing_job_id)
+                        result = await self.service.resume_job(
+                            job_id=existing_job_id,
+                            db=context.db,
+                            skip_current_source=bool(step.metadata.get("skip_source")),
+                        )
                         step.metadata["human_action_required"] = False
+                        step.metadata["skip_source"] = False
                         return self._to_step_result(result, existing_job_id)
                     # Not resumable -> fall through and start a fresh job
                     step.metadata["human_action_required"] = False
@@ -120,14 +125,14 @@ class CollectionStepExecutor(BaseStepExecutor):
                 selected = self.service.select_sources(upstream_sources, col_req)
                 job.selected_sources = [s.model_dump(mode="json") for s in selected]
 
-                result = await self.service.manager.execute_job(
-                    request=col_req,
-                    sources=selected,
+                result = await self.service.execute_job_with_sources(
                     job_id=job.id,
+                    sources=selected,
+                    db=context.db,
                 )
             else:
                 # Run full job including discovery
-                result = await self.service.execute_job(job_id=job.id)
+                result = await self.service.execute_job(job_id=job.id, db=context.db)
 
             logger.info(
                 f"CollectionStepExecutor finished: {len(result.documents)} documents collected "

@@ -25,12 +25,16 @@ from app.collection.discovery.discovery import SourceDiscovery
 from app.collection.schemas import (
     CollectionRequest,
     CollectionStrategy,
+    CollectionResult,
     SourceDefinition,
     SourceType,
     AccessMethod,
+    SourceStatus,
     RawDocument,
     JobStatus,
 )
+from app.collection.service import CollectionService
+from app.collection.manager import CollectionManager
 from app.collection.collectors.base import CaptchaChallengeDetected, CollectorException
 from app.collection.collectors.http import HTTPCollector
 from app.collection.collectors.api import APICollector
@@ -366,10 +370,10 @@ async def test_collection_executor_resumes_existing_job():
             self.resumed = []
             self.created = 0
 
-        async def get_job(self, job_id):
+        async def get_job(self, job_id, db=None):
             return FakeJob()
 
-        async def resume_job(self, job_id):
+        async def resume_job(self, job_id, db=None, skip_current_source=False):
             self.resumed.append(job_id)
             return CollectionResult(
                 job_id=job_id, request_id="r", status=JobStatus.COMPLETED.value, documents=[]
@@ -424,5 +428,122 @@ def test_api_collection_list_endpoints():
     docs = client.get("/api/v1/collection/documents")
     assert docs.status_code == 200
     assert isinstance(docs.json(), list)
+
+
+# ---------------------------------------------------------------------------
+# 9. Workflow CAPTCHA pause -> resume actually continues (regression)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_execute_job_with_sources_finalizes_human_action_status():
+    """The workflow path must leave the collection job in HUMAN_ACTION_REQUIRED."""
+    service = CollectionService()
+    job = await service.create_job(CollectionRequest(objective="x", entity="startup"))
+    source = SourceDefinition(
+        id="src_hr", name="HR", base_url="https://hr.example",
+        type=SourceType.WEBSITE, access_method=AccessMethod.HTTP,
+    )
+
+    async def fake_execute(self, request, sources, **kwargs):
+        return CollectionResult(
+            job_id=kwargs.get("job_id", job.id), request_id="r",
+            status=JobStatus.HUMAN_ACTION_REQUIRED.value, human_action_required=True,
+            human_action_reason="CAPTCHA_REQUIRED",
+            checkpoint={"job_id": job.id, "current_source": source.model_dump(mode="json"),
+                        "remaining_sources": [], "request": job.collection_request, "resume_attempt": 1},
+        )
+
+    with patch.object(CollectionManager, "execute_job", fake_execute):
+        result = await service.execute_job_with_sources(job_id=job.id, sources=[source])
+
+    assert result.status == JobStatus.HUMAN_ACTION_REQUIRED.value
+    refreshed = await service.get_job(job.id)
+    assert refreshed.status == JobStatus.HUMAN_ACTION_REQUIRED.value
+    assert refreshed.human_action_required is True
+
+
+@pytest.mark.asyncio
+async def test_resume_skip_source_blocks_and_pivots():
+    """Skip-source resume abandons the blocked source and uses alternatives."""
+    service = CollectionService()
+    job = await service.create_job(CollectionRequest(objective="x", entity="startup"))
+    blocked = SourceDefinition(
+        id="src_blocked_skip", name="Blocked", base_url="https://blocked-skip.example",
+        type=SourceType.WEBSITE, access_method=AccessMethod.HTTP, capabilities=["startup"],
+    )
+    service.registry.register(blocked)
+
+    job.status = JobStatus.HUMAN_ACTION_REQUIRED.value
+    job.human_action_required = True
+    job.checkpoint = {
+        "job_id": job.id,
+        "current_source": blocked.model_dump(mode="json"),
+        "remaining_sources": [],
+        "request": job.collection_request,
+        "resume_attempt": 1,
+    }
+
+    captured = {}
+
+    async def fake_execute(self, request, sources, **kwargs):
+        captured["sources"] = sources
+        return CollectionResult(job_id=job.id, request_id="r", status=JobStatus.COMPLETED.value, documents=[])
+
+    with patch.object(CollectionManager, "execute_job", fake_execute):
+        result = await service.resume_job(job_id=job.id, skip_current_source=True)
+
+    assert result.status == JobStatus.COMPLETED.value
+    resumed_ids = [s.source_id for s in captured["sources"]]
+    assert "src_blocked_skip" not in resumed_ids
+    assert service.registry.get("src_blocked_skip").status == SourceStatus.BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_workflow_captcha_resume_completes_end_to_end():
+    """A CAPTCHA pause followed by a resume must complete (not loop or spawn new jobs)."""
+    from app.workflows.engine import WorkflowEngine
+    from app.workflows.registry import get_default_registry
+    from app.workflows.planner import WorkflowPlanner
+    from app.workflows.types import WorkflowStatus, StepStatus
+
+    state = {"calls": 0, "job_ids": []}
+
+    async def fake_execute(self, request, sources, **kwargs):
+        state["calls"] += 1
+        job_id = kwargs.get("job_id") or "job_x"
+        state["job_ids"].append(job_id)
+        if state["calls"] == 1:
+            src = sources[0] if sources else None
+            return CollectionResult(
+                job_id=job_id, request_id="r",
+                status=JobStatus.HUMAN_ACTION_REQUIRED.value, human_action_required=True,
+                human_action_reason="CAPTCHA_REQUIRED",
+                checkpoint={"job_id": job_id,
+                            "current_source": src.model_dump(mode="json") if src else None,
+                            "remaining_sources": [], "request": request.model_dump(mode="json"),
+                            "resume_attempt": 1},
+            )
+        return CollectionResult(job_id=job_id, request_id="r", status=JobStatus.COMPLETED.value, documents=[])
+
+    with patch.object(CollectionManager, "execute_job", fake_execute):
+        req = StructuredRequirement(objective="Find startups", entity="startup",
+                                    required_fields=["company_name"], output_format="table")
+        wf = WorkflowPlanner().plan(requirement=req)
+        engine = WorkflowEngine(registry=get_default_registry())
+
+        wf = await engine.execute(wf)
+        assert wf.status == WorkflowStatus.PAUSED
+
+        # Simulate the service resume: reset the paused step to PENDING
+        for step in wf.steps:
+            if step.status == StepStatus.HUMAN_ACTION_REQUIRED:
+                step.status = StepStatus.PENDING
+
+        wf = await engine.execute(wf)
+
+    assert wf.status == WorkflowStatus.COMPLETED
+    # The same job is resumed (no duplicate job created on resume)
+    assert state["calls"] == 2
+    assert state["job_ids"][0] == state["job_ids"][1]
 
 

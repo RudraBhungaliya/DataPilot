@@ -4,7 +4,7 @@ Provides Phase 2 requirement parsing and Phase 3 workflow planning and execution
 """
 
 from typing import List, Optional, Any, Dict
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -213,6 +213,7 @@ async def execute_workflow(
 )
 async def resume_workflow(
     workflow_id: str,
+    skip_source: bool = Query(default=False, description="Abandon the blocked source and use alternatives"),
     db: AsyncSession = Depends(get_db),
 ) -> ExecuteWorkflowResponse:
     """
@@ -220,7 +221,9 @@ async def resume_workflow(
     (e.g. a CAPTCHA), continuing from the paused step instead of restarting.
     """
     try:
-        resumed_def = await workflow_service.resume_workflow(workflow_id=workflow_id, db=db)
+        resumed_def = await workflow_service.resume_workflow(
+            workflow_id=workflow_id, db=db, skip_source=skip_source
+        )
         return ExecuteWorkflowResponse(
             success=True,
             workflow=resumed_def,

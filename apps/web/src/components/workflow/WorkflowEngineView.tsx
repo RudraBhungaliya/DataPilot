@@ -54,14 +54,14 @@ export function WorkflowEngineView({
   const [isResuming, setIsResuming] = useState<boolean>(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleResume = async () => {
+  const handleResume = async (skipSource: boolean = false) => {
     setIsResuming(true);
     setExecutionError(null);
     try {
-      // Resume the workflow itself, which resumes the paused collection job.
+      // Resume the workflow itself, which resumes (or skips) the paused collection job.
       setIsExecuting(true);
       startPolling(workflow.workflow_id);
-      const res = await resumeWorkflow(workflow.workflow_id);
+      const res = await resumeWorkflow(workflow.workflow_id, skipSource);
       if (res.success && res.workflow) {
         setWorkflow(res.workflow);
         if (onWorkflowUpdated) onWorkflowUpdated(res.workflow);
@@ -376,23 +376,36 @@ export function WorkflowEngineView({
                     Human action required
                   </div>
                   <h3 className="text-lg font-bold text-white">
-                    DataPilot encountered a CAPTCHA on this source. We have paused the collection safely.
+                    DataPilot hit a CAPTCHA on this source and paused safely.
                   </h3>
                   <p className="text-sm text-amber-200/80">
-                    Please complete the CAPTCHA at the source, then return to DataPilot and click Resume.
+                    Complete the CAPTCHA in your browser, then click <strong>Resume</strong>. The automated
+                    collector uses its own session, so if the source keeps challenging it, click{" "}
+                    <strong>Skip source</strong> to continue with alternative sources.
                   </p>
                 </div>
               </div>
 
               {jobId && (
-                <Button
-                  onClick={handleResume}
-                  disabled={isResuming}
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0 shadow-lg shadow-amber-500/25 px-5"
-                >
-                  <Play className={`w-4 h-4 mr-2 ${isResuming ? "animate-spin" : "fill-current"}`} />
-                  {isResuming ? "Resuming..." : "Resume Collection"}
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                  <Button
+                    onClick={() => handleResume(false)}
+                    disabled={isResuming}
+                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shadow-lg shadow-amber-500/25 px-5"
+                  >
+                    <Play className={`w-4 h-4 mr-2 ${isResuming ? "animate-spin" : "fill-current"}`} />
+                    {isResuming ? "Resuming..." : "Resume Collection"}
+                  </Button>
+                  <Button
+                    onClick={() => handleResume(true)}
+                    disabled={isResuming}
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
+                  >
+                    <ShieldAlert className="w-4 h-4 mr-2" />
+                    Skip source &amp; continue
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -416,6 +429,11 @@ export function WorkflowEngineView({
               <div>
                 <span className="text-slate-500 block text-[10px] uppercase font-sans font-medium">Task ID & Status</span>
                 <span className="text-amber-400 font-semibold">{jobId || humanActionStep.id} (HUMAN_ACTION_REQUIRED)</span>
+                {checkpoint?.resume_attempt !== undefined && (
+                  <span className="text-slate-400 block mt-1">
+                    Attempt {checkpoint.resume_attempt}/{checkpoint.max_human_attempts ?? "?"}
+                  </span>
+                )}
               </div>
             </div>
           </div>
